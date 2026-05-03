@@ -17,7 +17,7 @@ The cross-cloud reference doc is at [`docs/reference-architectures/cross-cloud/v
 | `aws_vpn_connection` | BGP, both tunnels created (Azure consumes tunnel 1 in v1) |
 | `aws_vpn_gateway_route_propagation` | Auto-installs the Azure VNet route into the workload route table |
 | `aws_security_group` | ICMP ingress from `var.azure_vnet_cidr` only; egress all |
-| `aws_iam_role` + SSM-core attachment | Lets you reach the EC2 via `aws ssm start-session` |
+| `aws_iam_role` + SSM-core attachment | Lets you reach the EC2 via `aws ssm start-session`. Named `cross-cloud-labs-vpn-s2s-workload-role` — IAM resources require the full `cross-cloud-labs-` prefix per [`docs/reference-architectures/aws/iam/deployer.md`](../../../docs/reference-architectures/aws/iam/deployer.md) |
 | `aws_instance` t3.micro AL2023 | Ping target from the Azure side |
 | `random_password` | Generates the tunnel-1 PSK |
 

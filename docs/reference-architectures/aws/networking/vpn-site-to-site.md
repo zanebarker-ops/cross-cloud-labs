@@ -69,7 +69,7 @@ This lab uses a **Virtual Private Gateway (VGW)** attached directly to a single 
 | `aws_vpn_connection` | `ccl-vpns2s-vpn-azure` | BGP, two tunnels created |
 | `random_password` | `tunnel1_psk` | 32-char alphanumeric+`._` PSK for tunnel 1 |
 | `aws_security_group` | `ccl-vpns2s-sg-workload` | ICMP ingress from Azure VNet CIDR only; egress all |
-| `aws_iam_role` + `aws_iam_instance_profile` | `ccl-vpns2s-workload-*` | Grants `AmazonSSMManagedInstanceCore` to the EC2 |
+| `aws_iam_role` + `aws_iam_instance_profile` | `cross-cloud-labs-vpn-s2s-workload-*` | Grants `AmazonSSMManagedInstanceCore` to the EC2 (IAM names use the long prefix per [`docs/reference-architectures/aws/iam/deployer.md`](../iam/deployer.md)) |
 | `aws_instance` | `ccl-vpns2s-workload` | t3.micro AL2023 ping target |
 
 All resources carry the required tags: `owner=zane`, `project=cross-cloud-labs`, `lab=vpn-site-to-site`, `managed_by=terraform` — applied via the AWS provider's `default_tags` block.
@@ -88,7 +88,7 @@ All resources carry the required tags: `owner=zane`, `project=cross-cloud-labs`,
 
 ## 5. Identity
 
-- **EC2 instance role** `ccl-vpns2s-workload-role`: trust policy = EC2 service. One managed-policy attachment: `AmazonSSMManagedInstanceCore` (read SSM messages, write instance inventory, no PassRole).
+- **EC2 instance role** `cross-cloud-labs-vpn-s2s-workload-role` (instance profile of the same stem): trust policy = EC2 service. One managed-policy attachment: `AmazonSSMManagedInstanceCore` (read SSM messages, write instance inventory, no PassRole). The full `cross-cloud-labs-` prefix is required — see Gotcha 7.
 - **No IAM users** are created. Long-lived access keys are forbidden by the project rules — local Terraform auth uses the deploy-user creds in `.env`.
 - **No KMS** customer-managed keys; EBS root volume uses the default AWS-managed key.
 
@@ -144,6 +144,8 @@ For multi-VPC AWS-side hubs, the Azure analogue of TGW is the **Virtual WAN hub*
 - **DPD timeouts during testing**: AWS defaults Dead Peer Detection timeout to 30s with `clear` action — if you idle the tunnel for >30s with no traffic and no BGP keepalives, AWS will tear the SA down. With BGP enabled (our setup), keepalives prevent this in practice.
 - **`aws_vpn_gateway_attachment` vs. inline `vpc_id`**: we use the standalone attachment resource per the lab spec. Either works, but mixing both leads to drift — pick one and stay consistent.
 - **Single AZ**: the lab is single-AZ. A real deployment would put workload subnets in ≥2 AZs; the VPN tunnels themselves are independent of AZ since they terminate on the VGW.
+- **IAM names must use the long `cross-cloud-labs-` prefix** (not the short `ccl-vpns2s-` used elsewhere in the lab). The deployer's inline policy (`docs/reference-architectures/aws/iam/deployer.md`) only authorises IAM actions against ARNs matching `cross-cloud-labs-*` — anything else fails with `AccessDenied: iam:CreateRole`. We split the prefixes on purpose: short prefix for VPC/SG/EC2 to keep names readable, full prefix for IAM to satisfy the policy. Found the hard way on first apply (2026-05-03).
+- **Apply takes ~6 minutes** because `aws_vpn_gateway` (~30s), `aws_vpn_gateway_attachment` (~30s), and `aws_vpn_connection` (~4 min) are all serially slow. Plan accordingly when iterating.
 
 ## 10. Related Terraform
 

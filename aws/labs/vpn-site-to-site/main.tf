@@ -244,8 +244,12 @@ data "aws_iam_policy_document" "ec2_assume" {
   }
 }
 
+# IAM resources must start with `cross-cloud-labs-` — see
+# docs/reference-architectures/aws/iam/deployer.md. The deployer's inline
+# policy denies iam:CreateRole on any other prefix, so keep this distinct
+# from the (shorter) name_prefix used for VPC/SG/etc.
 resource "aws_iam_role" "workload" {
-  name               = "${local.name_prefix}-workload-role"
+  name               = "cross-cloud-labs-vpn-s2s-workload-role"
   assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
 }
 
@@ -255,7 +259,7 @@ resource "aws_iam_role_policy_attachment" "ssm_core" {
 }
 
 resource "aws_iam_instance_profile" "workload" {
-  name = "${local.name_prefix}-workload-profile"
+  name = "cross-cloud-labs-vpn-s2s-workload-profile"
   role = aws_iam_role.workload.name
 }
 
