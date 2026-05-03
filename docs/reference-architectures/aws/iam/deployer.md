@@ -38,13 +38,15 @@ Grants narrow IAM permissions so Terraform can create lab-scoped roles (e.g., VP
 
 **Allow** these IAM actions, but only on resources whose name starts with `cross-cloud-labs-`:
 
-- Role lifecycle: `CreateRole`, `DeleteRole`, `GetRole`, `ListRoles`, `UpdateRole`, `UpdateAssumeRolePolicy`, `TagRole`, `UntagRole`, `PassRole`
+- Role lifecycle: `CreateRole`, `DeleteRole`, `GetRole`, `ListRoles`, `ListInstanceProfilesForRole`, `UpdateRole`, `UpdateAssumeRolePolicy`, `TagRole`, `UntagRole`, `PassRole`
 - Role policies: `AttachRolePolicy`, `DetachRolePolicy`, `PutRolePolicy`, `DeleteRolePolicy`, `GetRolePolicy`, `ListRolePolicies`, `ListAttachedRolePolicies`
 - Service-linked roles: `CreateServiceLinkedRole`
 - Customer-managed policies: `CreatePolicy`, `DeletePolicy`, `GetPolicy`, `ListPolicies`, `CreatePolicyVersion`, `DeletePolicyVersion`, `GetPolicyVersion`, `ListPolicyVersions`, `TagPolicy`, `UntagPolicy`
 - Instance profiles: `CreateInstanceProfile`, `DeleteInstanceProfile`, `GetInstanceProfile`, `AddRoleToInstanceProfile`, `RemoveRoleFromInstanceProfile`, `TagInstanceProfile`, `UntagInstanceProfile`
 
 > **Tag actions are load-bearing.** The AWS Terraform provider's `default_tags` block applies tags at *create* time on every taggable resource. Without `iam:Tag*` permissions on instance profiles and policies, the `Create*` calls fail with `AccessDenied` on the implicit tagging step — even though `Create*` itself is allowed. Discovered while applying `aws/labs/vpn-site-to-site` (2026-05-03): `TagInstanceProfile`/`UntagInstanceProfile` were missing from the original policy. `TagPolicy`/`UntagPolicy` added at the same time as a preventative for the next lab that creates a customer-managed policy.
+>
+> **`ListInstanceProfilesForRole` is needed to *delete* a role.** The Terraform AWS provider calls this on `terraform destroy` of an `aws_iam_role` to verify no instance profiles are still attached. Without it the role survives `destroy` even when the instance profile is already gone. Discovered on the same lab's first teardown (2026-05-03).
 
 **Deny** any `iam:*` against the deployer user (`arn:aws:iam::*:user/terraform-deployer`), so a compromised key cannot escalate by rotating its own creds, attaching `AdministratorAccess` to itself, deleting the deny statement, etc. Access-key actions (`CreateAccessKey`, `UpdateAccessKey`, `DeleteAccessKey`) are evaluated against the parent user ARN, so the user-level Deny covers them — IAM access keys are not addressable as standalone ARNs.
 
