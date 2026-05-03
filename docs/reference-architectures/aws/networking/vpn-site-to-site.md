@@ -83,6 +83,8 @@ All resources carry the required tags: `owner=zane`, `project=cross-cloud-labs`,
 - **VGW**: `amazon_side_asn = 65020`. Attached via the standalone `aws_vpn_gateway_attachment` resource.
 - **Customer Gateway**: `bgp_asn = 65010`, `ip_address = <azure_gw_public_ip>` (paste from Azure round-1 output), `type = ipsec.1`.
 - **VPN Connection**: `static_routes_only = false` (BGP). Both tunnels are created. Tunnel 1's PSK is pinned via `random_password`; tunnel 2's is AWS-default and unused in v1.
+- **Tunnel 1 inside CIDR**: `169.254.21.0/30` (locked cross-cloud param — AWS VGW = `.1`, Azure VPN GW = `.2`). Pinned on `aws_vpn_connection` via `tunnel1_inside_cidr` so the BGP peer addresses are deterministic and match what the Azure side configures. Note: changing this attribute is a force-new — Terraform will replace the VPN connection, which generates new tunnel public IPs.
+- **Tunnel 2 inside CIDR**: left to AWS default (HA future-work).
 - **Route propagation**: enabled only on the workload route table.
 - **Exposure**: workload SG ingress is exclusively ICMP from `var.azure_vnet_cidr`. Egress is unrestricted (required for SSM and ICMP back to Azure). The EC2 has a public IPv4 for SSM bootstrap; SG denies all public ingress.
 

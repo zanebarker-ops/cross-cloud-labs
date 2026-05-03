@@ -189,6 +189,13 @@ resource "aws_vpn_connection" "azure" {
 
   tunnel1_preshared_key = local.tunnel1_psk
 
+  # Locked cross-cloud param (agreed with Azure session 2026-05-03):
+  # tunnel 1 inside CIDR 169.254.21.0/30 — AWS VGW = .1, Azure = .2.
+  # Pinning this avoids surprises when the Azure side configures its
+  # Connection.IpsecPolicy / BGP peer address. tunnel2 left at AWS default
+  # — Azure does not consume tunnel 2 in v1 (HA future-work).
+  tunnel1_inside_cidr = "169.254.21.0/30"
+
   tags = {
     Name = "${local.name_prefix}-vpn-azure"
   }
@@ -225,6 +232,10 @@ resource "aws_vpc_security_group_ingress_rule" "icmp_from_azure" {
   ip_protocol       = "icmp"
   from_port         = -1
   to_port           = -1
+
+  tags = {
+    Name = "${local.name_prefix}-sgr-in-icmp-azure"
+  }
 }
 
 resource "aws_vpc_security_group_egress_rule" "all" {
@@ -232,6 +243,10 @@ resource "aws_vpc_security_group_egress_rule" "all" {
   description       = "Egress anywhere (needed for SSM + ICMP to Azure)"
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
+
+  tags = {
+    Name = "${local.name_prefix}-sgr-out-all"
+  }
 }
 
 data "aws_iam_policy_document" "ec2_assume" {
@@ -251,6 +266,10 @@ data "aws_iam_policy_document" "ec2_assume" {
 resource "aws_iam_role" "workload" {
   name               = "cross-cloud-labs-vpn-s2s-workload-role"
   assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
+
+  tags = {
+    Name = "cross-cloud-labs-vpn-s2s-workload-role"
+  }
 }
 
 resource "aws_iam_role_policy_attachment" "ssm_core" {
@@ -261,6 +280,10 @@ resource "aws_iam_role_policy_attachment" "ssm_core" {
 resource "aws_iam_instance_profile" "workload" {
   name = "cross-cloud-labs-vpn-s2s-workload-profile"
   role = aws_iam_role.workload.name
+
+  tags = {
+    Name = "cross-cloud-labs-vpn-s2s-workload-profile"
+  }
 }
 
 data "aws_ami" "al2023" {
