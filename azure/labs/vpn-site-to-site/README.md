@@ -82,6 +82,12 @@ ping <aws_workload_private_ip>
 
 VPN Gateway delete takes 10–20 minutes — expected. The script is idempotent.
 
+> If you're running from the `cross-cloud-labs-azure` git worktree, ensure `.env` is present at the worktree root. Symlink the original clone's `.env` to avoid duplicating credentials:
+>
+> ```bash
+> ln -s /mnt/c/repos/github/cross-cloud-labs/.env /mnt/c/repos/github/cross-cloud-labs-azure/.env
+> ```
+
 ## Costs
 
 Approximately **$0.21/hr** while running (VPN GW + public IP + B1s VM + disk). At 8 hours/day with nightly teardown: ~$1.70/day Azure-side. See cross-cloud doc for full breakdown.
