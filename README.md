@@ -40,23 +40,37 @@ teardown-all.sh                Walks all labs and destroys
 # 1. Clone & enter
 git clone <repo> && cd cross-cloud-labs
 
-# 2. Set up credentials
+# 2. Activate in-repo git hooks (one-time per clone)
+./scripts/install-git-hooks.sh   # installs pre-push guard against pushing to main
+
+# 3. Set up credentials
 cp .env.example .env
 $EDITOR .env   # fill in AWS keys + Azure SP
 
-# 3. Pick a lab
+# 4. Pick a lab
 cd labs/<lab-name>
 
-# 4. Apply
+# 5. Apply
 set -a && source ../../.env && set +a
 terraform init
 terraform plan
 terraform apply
 
-# 5. Tear down (end of day, every day)
+# 6. Tear down (end of day, every day)
 cd ../..
 ./teardown-all.sh
 ```
+
+## Hooks
+
+Two layers enforce the "no direct pushes to `main`" rule:
+
+| Layer | What it catches | Where |
+|---|---|---|
+| Git `pre-push` | Any `git push` (human or tool) targeting `refs/heads/main` or `refs/heads/master`, including deletions | `.githooks/pre-push`, activated by `scripts/install-git-hooks.sh` |
+| Claude Code `PreToolUse` | Claude-issued `git commit` / `git push` while the working tree is on `main`/`master` | `.claude/hooks/block-main-write.sh`, wired in `.claude/settings.json` |
+
+Bypass for a one-off legitimate need: `git push --no-verify`. Don't make a habit of it.
 
 ## Connectivity roadmap
 
