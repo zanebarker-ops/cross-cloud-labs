@@ -14,11 +14,9 @@ if [[ ! -f "${REPO_ROOT}/.env" ]]; then
   exit 1
 fi
 
-# Source .env, stripping CRLF on the fly so a Windows-edited .env doesn't
-# break us (the `set -e` above would abort on a bare \r line).
 # shellcheck disable=SC1091
 set -a
-source <(tr -d '\r' < "${REPO_ROOT}/.env")
+source "${REPO_ROOT}/.env"
 set +a
 
 cd "${LAB_DIR}"
