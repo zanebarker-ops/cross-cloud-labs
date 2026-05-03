@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Git pre-push hook: refuse any push that lands on main/master.
+#
+# Enforces the cross-cloud-labs project rule "never push to main; PR-only
+# workflow" (see .claude/CLAUDE.md). Counterpart to the Claude Code hook
+# at .claude/hooks/block-main-write.sh, which only catches tool calls
+# from a Claude session — this catches human-driven pushes too.
+#
+# Activation (one-time per clone):
+#   git config core.hooksPath .githooks
+# Or run scripts/install-git-hooks.sh.
+#
+# Hook protocol (stdin, one line per ref being pushed):
+#   <local_ref> <local_sha> <remote_ref> <remote_sha>
+#
+# Exit non-zero to abort the push.
+
+set -euo pipefail
+
+zero='0000000000000000000000000000000000000000'
+blocked_refs='refs/heads/main refs/heads/master'
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Empty line: nothing to inspect.
+  [[ -z "${remote_ref:-}" ]] && continue
+
+  for blocked in $blocked_refs; do
+    if [[ "$remote_ref" == "$blocked" ]]; then
+      branch_name="${blocked#refs/heads/}"
+
+      if [[ "$local_sha" == "$zero" ]]; then
+        # Deletion of remote main/master.
+        echo "REFUSED: pre-push hook blocks deleting '$branch_name' on the remote." >&2
+      else
+        echo "REFUSED: pre-push hook blocks pushing to '$branch_name'." >&2
+        echo "Project rule: changes land on $branch_name only via merged PRs." >&2
+      fi
+      echo >&2
+      echo "If you really need to bypass this once, re-run with --no-verify." >&2
+      echo "Prefer: open a PR with 'gh pr create' and merge that instead." >&2
+      exit 1
+    fi
+  done
+done
+
+exit 0
