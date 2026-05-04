@@ -17,7 +17,7 @@ Provide a route-based, BGP-capable VPN endpoint inside an Azure VNet so the VNet
 │   │            ▲                │                       │
 │   │            │                │                       │
 │   │  VirtualNetworkGateway      │                       │
-│   │   SKU:    VpnGw1            │                       │
+│   │   SKU:    VpnGw1AZ          │                       │
 │   │   type:   Vpn               │                       │
 │   │   vpn:    RouteBased        │                       │
 │   │   BGP:    enabled, ASN 65010│                       │
@@ -51,8 +51,8 @@ Provide a route-based, BGP-capable VPN endpoint inside an Azure VNet so the VNet
 | Resource group | `azurerm_resource_group` | One per lab. Tagged. |
 | VNet | `azurerm_virtual_network` | Address space `10.10.0.0/16`. |
 | GatewaySubnet | `azurerm_subnet` | **Name must be exactly `GatewaySubnet`**. /27 minimum, /26+ for active-active. |
-| Public IP | `azurerm_public_ip` | `allocation_method = Static`, `sku = Standard`. Required by VpnGw* SKUs. |
-| Virtual Network Gateway | `azurerm_virtual_network_gateway` | `type = Vpn`, `vpn_type = RouteBased`, `sku = VpnGw1`, BGP block with `asn = 65010`. |
+| Public IP | `azurerm_public_ip` | `allocation_method = Static`, `sku = Standard`, `zones = ["1","2","3"]`. AZ VPN GW SKUs require zone-configured Standard PIPs (`VmssVpnGatewayPublicIpsMustHaveZonesConfigured`). |
+| Virtual Network Gateway | `azurerm_virtual_network_gateway` | `type = Vpn`, `vpn_type = RouteBased`, `sku = VpnGw1AZ` (non-AZ SKUs retired 2026-05 — see Gotcha), BGP block with `asn = 65010`. |
 | Local Network Gateway | `azurerm_local_network_gateway` | One per remote tunnel endpoint. Holds remote tunnel IP, remote ASN, remote address space. |
 | Connection | `azurerm_virtual_network_gateway_connection` | `type = IPsec`, links VNG ↔ LNG, carries PSK and `enable_bgp = true`. |
 
@@ -80,13 +80,27 @@ Provide a route-based, BGP-capable VPN endpoint inside an Azure VNet so the VNet
 
 | Item | Hourly | Monthly (30d) |
 |---|---|---|
-| VPN Gateway VpnGw1 | ~$0.19 | ~$140 |
+| VPN Gateway VpnGw1AZ | ~$0.225 | ~$163 |
 | Standard Public IP | ~$0.005 | ~$3.60 |
-| B1s VM | ~$0.0104 | ~$7.50 |
-| Premium SSD 30GB OS disk | ~$0.006 | ~$5 |
+| D2als_v7 VM (AMD, 2 vCPU / 4 GB, eastus2) | ~$0.041 | ~$30 |
+| Standard_LRS 30GB OS disk | ~$0.0024 | ~$1.75 |
 | Outbound data over VPN | $0.087 / GB | usage-based |
 
-**Dominant cost: VPN Gateway.** Daily teardown is essential. Higher SKUs (VpnGw2, VpnGw3) add zero learning value at this stage and ~3–10x cost.
+**Dominant cost: VPN Gateway.** Daily teardown is essential. Higher SKUs (VpnGw2AZ, VpnGw3AZ) add zero learning value at this stage and ~3–10x cost.
+
+**Region note (load-bearing):** the lab now defaults to **eastus2**, not eastus. As of 2026-05, eastus has heavy SKU capacity restrictions on small VMs (B1s/B2s/DS1_v2 all return `SkuNotAvailable`); the only x64 small SKU with both quota and capacity is `Standard_FX2mds_v2` (~$0.45/hr — 43× B1s). eastus2 has multiple v7 families unrestricted with default 10 vCPU quota.
+
+**VM SKU iteration history (2026-05-04):**
+
+| Region | Attempt | SKU | Result |
+|---|---|---|---|
+| eastus | 1 | `Standard_B1s` | `SkuNotAvailable` — capacity-restricted |
+| eastus | 2 | `Standard_B2ats_v2` | `OperationNotAllowed` — Bsv2 family quota = 0 |
+| eastus | 3 | `Standard_B2s` | `SkuNotAvailable` — entire BS family capacity-restricted |
+| eastus | 4 | `Standard_DS1_v2` | `SkuNotAvailable` — DSv2 also restricted |
+| eastus2 | 5 | `Standard_D2als_v7` | works (after switching region) |
+
+Lesson: query `az vm list-skus --location <region>` (filter for unrestricted) AND `az vm list-usage --location <region>` (check family quota) BEFORE picking — the intersection is what you can actually deploy. Don't assume "small + common = available."
 
 ## 7. Teardown
 
@@ -109,8 +123,9 @@ Provide a route-based, BGP-capable VPN endpoint inside an Azure VNet so the VNet
 ## 9. Gotchas
 
 - **`GatewaySubnet` name** is hard-coded by Azure. Spelling it `gatewaysubnet` or `Gateway-Subnet` will fail at apply time.
-- **Public IP SKU mismatch:** VpnGw1 requires Standard SKU. Basic SKU public IP will fail validation.
-- **BGP block requires generation 2 SKUs** (VpnGw1 and up). Basic SKU has no BGP.
+- **Non-AZ SKUs are retired (2026-05).** `VpnGw1`, `VpnGw2`, `VpnGw3` (and 4/5) are no longer accepted by the control plane: apply fails with `NonAzSkusNotAllowedForVPNGateway: VpnGw1-5 non-AZ SKUs are no longer supported for VPN gateways. Only VpnGw1-5AZ SKUs can be created going forward.` Use the `*AZ` variant. Found the hard way on first apply.
+- **Public IP SKU mismatch:** VpnGw*AZ requires Standard SKU public IP. Basic SKU public IP will fail validation.
+- **BGP block requires generation 2 SKUs** (VpnGw1AZ and up). Basic SKU has no BGP.
 - **Active-active** requires `active_active = true`, two `ip_configuration` blocks, two public IPs, and two LNG/Connection pairs. Out of scope for v1.
 - **VNet peering with gateway transit:** if added later, set `use_remote_gateways` carefully — easy to break with circular dependencies.
 - **Provisioning time:** VPN GW takes 30–45 minutes to create. First apply is slow; subsequent applies on existing GW are normal.

@@ -23,14 +23,14 @@ This is the foundational connectivity lab. Subsequent labs (Azure Virtual WAN, A
                 ┌──────────────────────────┘               └──────────────────────────┐
                 │                                                                     │
    ┌────────────▼─────────────┐                                       ┌───────────────▼──────────┐
-   │   Azure  (eastus)        │                                       │   AWS  (us-east-1)       │
+   │   Azure  (eastus2)       │                                       │   AWS  (us-east-1)       │
    │   VNet  10.10.0.0/16     │                                       │   VPC  10.20.0.0/16      │
    │                          │                                       │                          │
    │   GatewaySubnet          │                                       │   public subnet          │
    │   10.10.255.0/27         │                                       │   10.20.0.0/24           │
    │   ┌────────────────┐     │                                       │   ┌────────────────┐     │
    │   │ VPN Gateway    │◄────┼───── BGP peering (ASN 65010↔65020) ───┼──►│ Virtual Private│     │
-   │   │  VpnGw1        │     │                                       │   │ Gateway (VGW)  │     │
+   │   │  VpnGw1AZ      │     │                                       │   │ Gateway (VGW)  │     │
    │   │  ASN 65010     │     │                                       │   │  ASN 65020     │     │
    │   │  pub IP        │     │                                       │   │  attached to   │     │
    │   └────────┬───────┘     │                                       │   │  VPC           │     │
@@ -46,7 +46,7 @@ This is the foundational connectivity lab. Subsequent labs (Azure Virtual WAN, A
    │   workload subnet        │                                       │   workload subnet        │
    │   10.10.1.0/24           │                                       │   10.20.1.0/24           │
    │   ┌────────────────┐     │                                       │   ┌────────────────┐     │
-   │   │ VM (B1s)       │ ◄───┼─────────  ICMP allowed  ──────────────┼─► │ EC2 (t3.micro) │     │
+   │   │ VM (D2als_v7)  │ ◄───┼─────────  ICMP allowed  ──────────────┼─► │ EC2 (t3.micro) │     │
    │   │ Ubuntu 22.04   │     │                                       │   │ Amazon Linux   │     │
    │   └────────────────┘     │                                       │   └────────────────┘     │
    └──────────────────────────┘                                       └──────────────────────────┘
@@ -58,16 +58,16 @@ This is the foundational connectivity lab. Subsequent labs (Azure Virtual WAN, A
 
 | Resource | Type | Purpose |
 |---|---|---|
-| `rg-cross-cloud-labs-vpn-eastus` | `azurerm_resource_group` | Container for all lab resources |
-| `vnet-eastus` | `azurerm_virtual_network` | 10.10.0.0/16 |
+| `rg-cross-cloud-labs-vpn-eastus2` | `azurerm_resource_group` | Container for all lab resources |
+| `vnet-eastus2` | `azurerm_virtual_network` | 10.10.0.0/16 |
 | `GatewaySubnet` | `azurerm_subnet` | 10.10.255.0/27 — required name, holds VPN GW |
 | `snet-workload` | `azurerm_subnet` | 10.10.1.0/24 — holds the test VM |
-| `pip-vpngw` | `azurerm_public_ip` | Static, Standard SKU (required by VpnGw1) |
-| `vng-eastus` | `azurerm_virtual_network_gateway` | VpnGw1 SKU, route-based, BGP enabled, ASN 65010 |
+| `pip-vpngw` | `azurerm_public_ip` | Static, Standard SKU (required by VpnGw1AZ) |
+| `vng-eastus2` | `azurerm_virtual_network_gateway` | VpnGw1AZ SKU (non-AZ SKUs retired 2026-05), route-based, BGP enabled, ASN 65010 |
 | `lng-aws-tunnel1` | `azurerm_local_network_gateway` | Represents AWS tunnel1 endpoint + AWS VGW BGP ASN |
 | `cn-azure-aws` | `azurerm_virtual_network_gateway_connection` | IPSec Connection (BGP, PSK) |
 | `nsg-workload` | `azurerm_network_security_group` | Permits ICMP from 10.20.0.0/16 only |
-| `vm-azure-workload` | `azurerm_linux_virtual_machine` | B1s Ubuntu 22.04, no public IP |
+| `vm-azure-workload` | `azurerm_linux_virtual_machine` | D2als_v7 Ubuntu 22.04, no public IP (in eastus2; eastus had heavy capacity restrictions across BS/DSv2 — see Gotcha) |
 
 ### AWS side (`aws/labs/vpn-site-to-site/`)
 
@@ -138,10 +138,10 @@ AWS Site-to-Site VPN provisions two tunnels by default (HA design). v1 of this l
 
 | Item | Cloud | Hourly | Notes |
 |---|---|---|---|
-| VPN Gateway VpnGw1 | Azure | ~$0.19 | The dominant cost on the Azure side |
-| Standard public IP | Azure | ~$0.005 | One per VPN GW; required by VpnGw1 |
-| B1s VM | Azure | ~$0.0104 | Ubuntu image, no extra license |
-| Standard managed disk (Premium SSD 30GB) | Azure | ~$0.006 | OS disk |
+| VPN Gateway VpnGw1AZ | Azure | ~$0.225 | The dominant cost on the Azure side. Non-AZ VpnGw1 was ~$0.19 but is retired (2026-05). |
+| Standard public IP | Azure | ~$0.005 | One per VPN GW; required by VpnGw1AZ |
+| D2als_v7 VM (AMD, 2 vCPU / 4 GB, eastus2) | Azure | ~$0.041 | Multi-iteration SKU pick (2026-05-04): every small SKU we tried in eastus failed (B1s/B2s/DS1_v2 all `SkuNotAvailable`; B2ats_v2 family quota=0). Switched region to eastus2 where Dalsv7 is unrestricted with default 10 vCPU quota. |
+| Standard_LRS 30GB managed disk | Azure | ~$0.0024 | OS disk (deleted on VM delete) |
 | VPN Connection | AWS | ~$0.05 | Charged regardless of tunnel state |
 | t3.micro | AWS | ~$0.0104 | May be free-tier covered |
 | Public IPv4 (any unattached or attached) | AWS | ~$0.005 each | Watch out for stranded EIPs |
@@ -149,11 +149,11 @@ AWS Site-to-Site VPN provisions two tunnels by default (HA design). v1 of this l
 
 ### Daily total (running 8 hours, then teardown)
 
-Roughly **$2.10/day** if you keep it up all 8 hours of a workday. With same-day teardown, well under $1/day.
+Roughly **$2.65/day** if you keep it up all 8 hours of a workday. With same-day teardown, well under $1/day.
 
 ### If left running 24h
 
-Roughly **$6.50/day** (~$200/month). This is why we tear down nightly.
+Roughly **$7.85/day** (~$240/month). This is why we tear down nightly.
 
 ## 7. Teardown
 
@@ -185,7 +185,11 @@ Each side's `destroy.sh` runs `terraform destroy -auto-approve` for that root. W
 - **BGP ASN clashes:** Azure default ASN is 65515. We deliberately picked 65010/65020 so neither side accidentally collides with an Azure default.
 - **Encryption domains:** with BGP and route-based VPNs on both sides, the IKE/IPSec SA negotiates `0.0.0.0/0 ↔ 0.0.0.0/0` (any-any). Routing decides what actually traverses.
 - **MTU:** AWS VPN Connection enforces MSS clamping by default. If you see 1500-byte pings work but TCP stalls, suspect MSS — verify clamping on the AWS side.
-- **Active-standby vs active-active:** Azure VpnGw1 in active-standby mode has one public IP and one BGP peer. Active-active would need two public IPs and two LocalNetworkGateways to use both AWS tunnels. v1 keeps it simple; HA is future work.
+- **Non-AZ VPN GW SKUs are retired (2026-05).** `VpnGw1`/2/3/4/5 fail with `NonAzSkusNotAllowedForVPNGateway`. Use the `*AZ` variant. ~18% cost bump (VpnGw1AZ ≈ $0.225/hr vs old VpnGw1 ≈ $0.19/hr) but no behavioural difference for this lab. Found on first apply 2026-05-04.
+- **Region pick (load-bearing): eastus2, not eastus.** As of 2026-05, eastus has heavy small-VM capacity restrictions: every B-series and DSv2 SKU we tried hit `SkuNotAvailable`; the only x64 small SKU with both quota AND capacity in eastus right now is `Standard_FX2mds_v2` (~$0.45/hr — 43× B1s). eastus2 has multiple v7 D-/F-/E-families unrestricted with default 10 vCPU quota. Both pair with AWS us-east-1 over the public internet for this VPN lab — no functional reason to prefer eastus.
+- **VM SKU pick: query before deploying.** Original guess-and-fail loop wasted ~50 min of VPN-GW provisioning time. Workflow before picking a VM SKU: (1) `az vm list-skus --location <region> --resource-type virtualMachines -o json | jq '[.[] | select(.restrictions | length == 0) | select(.capabilities[]? | select(.name=="HyperVGenerations" and (.value | contains("V2"))))]'` to find unrestricted gen2 SKUs; (2) `az vm list-usage --location <region>` to check family quota; (3) only pick where the family in (2) has quota > 0 AND the SKU is in the unrestricted list from (1). Stay on x64 unless you also switch the image to `22_04-lts-arm64`.
+- **AZ VPN GW PIP must have zones.** `VmssVpnGatewayPublicIpsMustHaveZonesConfigured` &mdash; AZ-SKU VPN gateways reject Standard PIPs without `zones`. Set `zones = ["1","2","3"]` on the PIP. Force-new attribute, so adding it to an existing zoneless PIP recreates it (and any dependent VPN GW).
+- **Active-standby vs active-active:** Azure VpnGw1AZ in active-standby mode has one public IP and one BGP peer. Active-active would need two public IPs and two LocalNetworkGateways to use both AWS tunnels. v1 keeps it simple; HA is future work.
 - **GatewaySubnet name is mandatory:** it must be exactly `GatewaySubnet`. No prefix.
 - **`force_destroy` on storage:** the Azure VM uses ephemeral OS disk where possible to avoid orphaned managed disks on destroy. If non-ephemeral, the disk's `delete_option = "Delete"` must be set on the OS disk.
 - **AWS public IPv4 cost (since 2024):** every EIP, every default-assigned EC2 public IP, even when attached, is now $0.005/hr. The workload EC2 deliberately has no public IP for this reason.
@@ -196,7 +200,7 @@ After both sides apply (phase 3 complete):
 
 1. **Azure → AWS tunnel state:** Azure portal → VPN Gateway → Connections → status should be `Connected`. Or:
    ```
-   az network vpn-connection show -g rg-cross-cloud-labs-vpn-eastus -n cn-azure-aws --query connectionStatus
+   az network vpn-connection show -g rg-cross-cloud-labs-vpn-eastus2 -n cn-azure-aws --query connectionStatus
    ```
 2. **AWS tunnel state:**
    ```

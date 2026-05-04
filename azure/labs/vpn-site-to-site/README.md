@@ -65,7 +65,7 @@ This creates the Local Network Gateway and the Connection. Tunnel comes up withi
 ```bash
 # Azure tunnel state
 az network vpn-connection show \
-  -g rg-cross-cloud-labs-vpn-eastus \
+  -g rg-cross-cloud-labs-vpn-eastus2 \
   -n cn-azure-aws \
   --query connectionStatus -o tsv
 # Expect: Connected

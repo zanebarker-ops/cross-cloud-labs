@@ -5,7 +5,7 @@ resource "azurerm_resource_group" "this" {
 }
 
 resource "azurerm_virtual_network" "this" {
-  name                = "vnet-eastus"
+  name                = "vnet-eastus2"
   location            = azurerm_resource_group.this.location
   resource_group_name = azurerm_resource_group.this.name
   address_space       = [var.vnet_address_space]
@@ -32,11 +32,15 @@ resource "azurerm_public_ip" "vpngw" {
   resource_group_name = azurerm_resource_group.this.name
   allocation_method   = "Static"
   sku                 = "Standard"
-  tags                = var.tags
+  # Required by VpnGw1AZ and other AZ VPN gateway SKUs:
+  # "Standard Public IPs associated with VPN Gateways with AZ VPN skus must
+  # have zones configured." (VmssVpnGatewayPublicIpsMustHaveZonesConfigured)
+  zones = ["1", "2", "3"]
+  tags  = var.tags
 }
 
 resource "azurerm_virtual_network_gateway" "this" {
-  name                = "vng-eastus"
+  name                = "vng-eastus2"
   location            = azurerm_resource_group.this.location
   resource_group_name = azurerm_resource_group.this.name
 
@@ -165,7 +169,16 @@ resource "azurerm_linux_virtual_machine" "workload" {
   name                = "vm-azure-workload"
   location            = azurerm_resource_group.this.location
   resource_group_name = azurerm_resource_group.this.name
-  size                = "Standard_B1s"
+  # SKU iteration history (2026-05-04, all in original eastus):
+  #   Standard_B1s      -> SkuNotAvailable (capacity-restricted)
+  #   Standard_B2ats_v2 -> Bsv2 family quota = 0
+  #   Standard_B2s      -> SkuNotAvailable (whole BS family capacity-restricted)
+  #   Standard_DS1_v2   -> SkuNotAvailable
+  # Lesson: query `az vm list-skus --location <region>` + `az vm list-usage`
+  # for restrictions and quota BEFORE picking. Re-targeted to eastus2 where
+  # multiple v7 families are unrestricted with default 10 vCPU quota.
+  # Standard_D2als_v7: AMD, 2 vCPU / 4 GB, gen2-capable, ~$0.041/hr.
+  size                = "Standard_D2als_v7"
   admin_username      = var.admin_username
 
   network_interface_ids = [azurerm_network_interface.workload.id]

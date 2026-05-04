@@ -1,13 +1,13 @@
 variable "location" {
-  description = "Azure region for the lab. Locked to eastus to pair with AWS us-east-1."
+  description = "Azure region for the lab. eastus2 paired with AWS us-east-1 — eastus2 has reliable small-VM SKU capacity (eastus is heavily restricted as of 2026-05)."
   type        = string
-  default     = "eastus"
+  default     = "eastus2"
 }
 
 variable "resource_group_name" {
   description = "Resource group name for all lab resources."
   type        = string
-  default     = "rg-cross-cloud-labs-vpn-eastus"
+  default     = "rg-cross-cloud-labs-vpn-eastus2"
 }
 
 variable "vnet_address_space" {
@@ -35,9 +35,9 @@ variable "azure_bgp_asn" {
 }
 
 variable "vpn_gateway_sku" {
-  description = "Azure VPN Gateway SKU. VpnGw1 is the cheapest BGP-capable option."
+  description = "Azure VPN Gateway SKU. Must be an AZ SKU — Microsoft retired the non-AZ VpnGw1-5 SKUs (NonAzSkusNotAllowedForVPNGateway). VpnGw1AZ is the cheapest BGP-capable option."
   type        = string
-  default     = "VpnGw1"
+  default     = "VpnGw1AZ"
 }
 
 variable "admin_username" {
