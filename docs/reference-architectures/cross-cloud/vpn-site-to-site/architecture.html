@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>cross-cloud-labs &mdash; Site-to-Site VPN (Azure &harr; AWS)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Consolas, monospace; background: #0d1117; color: #c9d1d9; overflow: auto; }
+
+  /* ---- Toolbar ---- */
+  .toolbar { position: fixed; top: 0; left: 0; right: 0; z-index: 1000; background: #161b22; border-bottom: 1px solid #30363d; padding: 8px 20px; display: flex; align-items: center; gap: 12px; }
+  .toolbar h1 { color: #58a6ff; font-size: 16px; flex: 1; }
+  .toolbar button { background: #238636; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 12px; cursor: pointer; font-family: inherit; }
+  .toolbar button:hover { background: #2ea043; }
+  .toolbar button.secondary { background: #30363d; }
+  .toolbar button.secondary:hover { background: #484f58; }
+  .toolbar .info { color: #8b949e; font-size: 11px; }
+
+  /* ---- Canvas ---- */
+  /* 1600px wide fits a 1920x1080 browser without horizontal scroll. Vertical
+     scroll is expected because there's more content than fits on one screen. */
+  .canvas { position: relative; width: 1600px; height: 2400px; margin-top: 50px; }
+
+  /* ---- Draggable boxes ---- */
+  .box { position: absolute; border: 2px solid; border-radius: 10px; padding: 10px 12px 10px; cursor: grab; user-select: none; transition: box-shadow 0.15s; }
+  .box:hover { box-shadow: 0 0 16px rgba(88,166,255,0.25); }
+  .box.dragging { cursor: grabbing; box-shadow: 0 0 24px rgba(88,166,255,0.4); z-index: 500; opacity: 0.92; }
+  .box.editing { cursor: text; }
+
+  /* ---- Inline editing ---- */
+  .editable-active { outline: 1px dashed #58a6ff; outline-offset: 2px; cursor: text; min-width: 20px; min-height: 1em; border-radius: 2px; background: rgba(88,166,255,0.06); }
+
+  /* ---- Common element styles ---- */
+  .box-label { font-weight: bold; font-size: 13px; margin-bottom: 4px; }
+  .detail { font-size: 11px; color: #8b949e; margin-bottom: 4px; line-height: 1.45; }
+  .box ul { font-size: 11px; color: #c9d1d9; padding-left: 16px; margin-top: 2px; line-height: 1.5; }
+  .box li { margin-bottom: 0; }
+  .box code { background: #21262d; border-radius: 3px; padding: 1px 4px; font-size: 10px; color: #f0883e; }
+  .box table { width: 100%; border-collapse: collapse; font-size: 10.5px; margin-top: 2px; }
+  .box th { background: #21262d; color: #f0f6fc; text-align: left; padding: 3px 6px; border: 1px solid #30363d; font-weight: 600; font-size: 10px; }
+  .box td { padding: 2px 6px; border: 1px solid #30363d; color: #c9d1d9; vertical-align: top; font-size: 10.5px; }
+  .box pre { background: #0d1117; border: 1px solid #21262d; border-radius: 4px; padding: 5px 7px; font-size: 10px; line-height: 1.45; color: #e6edf3; overflow-x: auto; margin: 3px 0; }
+
+  /* ---- Resize handle ---- */
+  .resize-handle { position: absolute; bottom: 0; right: 0; width: 16px; height: 16px; cursor: nwse-resize; opacity: 0.3; }
+  .resize-handle:hover { opacity: 0.7; }
+  .resize-handle::after { content: ''; position: absolute; bottom: 3px; right: 3px; width: 8px; height: 8px; border-right: 2px solid #8b949e; border-bottom: 2px solid #8b949e; }
+
+  /* ---- SVG connectors ---- */
+  svg.connectors { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+
+  /* ---- Tags ---- */
+  .tag { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 10px; font-weight: 600; margin-left: 4px; vertical-align: middle; }
+  .tag-az    { background: #58a6ff22; color: #58a6ff; border: 1px solid #58a6ff; }
+  .tag-aws   { background: #f7816622; color: #f78166; border: 1px solid #f78166; }
+  .tag-bgp   { background: #d2a8ff22; color: #d2a8ff; border: 1px solid #d2a8ff; }
+  .tag-flow  { background: #3fb95022; color: #3fb950; border: 1px solid #3fb950; }
+  .tag-net   { background: #f8514922; color: #f85149; border: 1px solid #f85149; }
+
+  /* ---- Color themes (cloud/role, see legend) ---- */
+  .theme-blue    { border-color: #58a6ff; background: rgba(88,166,255,0.04); }
+  .theme-blue    .box-label { color: #58a6ff; }
+  .theme-orange  { border-color: #f78166; background: rgba(247,129,102,0.06); }
+  .theme-orange  .box-label { color: #f78166; }
+  .theme-red     { border-color: #f85149; background: rgba(248,81,73,0.04); }
+  .theme-red     .box-label { color: #f85149; }
+  .theme-purple  { border-color: #d2a8ff; background: rgba(210,168,255,0.04); }
+  .theme-purple  .box-label { color: #d2a8ff; }
+  .theme-yellow  { border-color: #d29922; background: rgba(210,153,34,0.04); }
+  .theme-yellow  .box-label { color: #d29922; }
+  .theme-green   { border-color: #3fb950; background: rgba(63,185,80,0.04); }
+  .theme-green   .box-label { color: #3fb950; }
+  .theme-gray    { border-color: #8b949e; background: rgba(139,148,158,0.05); }
+  .theme-gray    .box-label { color: #8b949e; }
+  .theme-info    { border-color: #30363d; background: #161b22; }
+  .theme-info h4 { font-size: 12px; color: #58a6ff; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>cross-cloud-labs &mdash; Site-to-Site VPN (Azure eastus &harr; AWS us-east-1)</h1>
+  <span class="info" id="mode-hint">Drag boxes to reposition &bull; Double-click text to edit</span>
+  <button class="secondary" id="editToggle" onclick="toggleEditMode()">Edit Mode: OFF</button>
+  <button class="secondary" onclick="resetPositions()">Reset Layout</button>
+  <button class="secondary" onclick="saveLayout()">Save Layout</button>
+  <button onclick="exportPNG()">Export PNG</button>
+</div>
+
+<div class="canvas" id="canvas">
+
+  <svg class="connectors" id="connectorSvg">
+    <defs>
+      <marker id="arr-gray"   markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#8b949e"/></marker>
+      <marker id="arr-green"  markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#3fb950"/></marker>
+      <marker id="arr-blue"   markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#58a6ff"/></marker>
+      <marker id="arr-red"    markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#f85149"/></marker>
+      <marker id="arr-purple" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#d2a8ff"/></marker>
+      <marker id="arr-orange" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#f78166"/></marker>
+      <marker id="arr-yellow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#d29922"/></marker>
+    </defs>
+  </svg>
+
+  <!-- ============================================================
+       ROW 0 — Legend (left), Locked params (right)
+       ============================================================ -->
+  <div class="box theme-info" id="legend" style="left:20px; top:20px; width:480px;">
+    <h4>Color legend</h4>
+    <div class="detail" style="line-height:1.7">
+      <span class="tag tag-az">Blue</span> Azure resources
+      &nbsp; <span class="tag tag-aws">Orange</span> AWS resources<br>
+      <span class="tag tag-net">Red</span> Internet / IPSec tunnel
+      &nbsp; <span class="tag tag-bgp">Purple</span> BGP / routing peers<br>
+      <span class="tag" style="background:#d2992222;color:#d29922;border:1px solid #d29922">Yellow</span> Workload (the actual VMs)
+      &nbsp; <span class="tag tag-flow">Green</span> Cross-cloud traffic flow<br>
+      <span class="tag" style="background:#8b949e22;color:#8b949e;border:1px solid #8b949e">Gray</span> Supporting / unused HA capacity
+    </div>
+    <div class="detail" style="margin-top:6px">
+      Each box has at most one outgoing arrow (template constraint); proximity implies the rest.
+      Dashed arrows show direction of dependency or traffic flow.
+    </div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-info" id="ip-plan" style="left:520px; top:20px; width:1060px;">
+    <h4>Locked cross-cloud parameters</h4>
+    <table>
+      <tr>
+        <th>Azure</th><th>Value</th>
+        <th>AWS</th><th>Value</th>
+        <th>Tunnel</th><th>Value</th>
+      </tr>
+      <tr>
+        <td>VNet</td><td><code>10.10.0.0/16</code></td>
+        <td>VPC</td><td><code>10.20.0.0/16</code></td>
+        <td>Inside CIDR (T1)</td><td><code>169.254.21.0/30</code></td>
+      </tr>
+      <tr>
+        <td>GatewaySubnet</td><td><code>10.10.255.0/27</code></td>
+        <td>Public subnet</td><td><code>10.20.0.0/24</code></td>
+        <td>AWS BGP peer (.1)</td><td><code>169.254.21.1</code></td>
+      </tr>
+      <tr>
+        <td>Workload subnet</td><td><code>10.10.1.0/24</code></td>
+        <td>Workload subnet</td><td><code>10.20.1.0/24</code></td>
+        <td>Azure BGP peer (.2)</td><td><code>169.254.21.2</code></td>
+      </tr>
+      <tr>
+        <td>VPN GW BGP ASN</td><td>65010</td>
+        <td>VGW BGP ASN</td><td>65020</td>
+        <td>Tunnel 2</td><td>created (HA), unused v1</td>
+      </tr>
+    </table>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       ROW 1 — Internet / IPSec spine (full width across the top)
+       ============================================================ -->
+  <div class="box theme-red" id="internet" style="left:20px; top:240px; width:1560px;">
+    <div class="box-label">Public Internet &mdash; IPSec/IKEv2 tunnel (BGP-routed inside)</div>
+    <div class="detail">Tunnel 1 only in v1 (tunnel 2 created on AWS for HA, never wired to Azure). PSK is AWS-generated random; pasted into Azure tfvars. Encryption domain negotiated <code>0/0 &harr; 0/0</code> (route-based both sides) &mdash; routing decides what crosses. AWS enforces MSS clamping by default. With BGP keepalives the AWS DPD 30s timeout doesn't tear idle SAs.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       ROW 2 — Cloud headers
+       ============================================================ -->
+  <div class="box theme-blue" id="azure-region" style="left:20px; top:340px; width:770px;">
+    <div class="box-label">Azure &mdash; eastus &mdash; SP <code>cross-cloud-labs-tf</code> (Contributor)</div>
+    <div class="detail">RG <code>rg-cross-cloud-labs-vpn-eastus</code> &middot; lab path <code>azure/labs/vpn-site-to-site/</code> &middot; tags applied per resource.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-orange" id="aws-region" style="left:810px; top:340px; width:770px;">
+    <div class="box-label">AWS &mdash; us-east-1 &mdash; IAM user <code>terraform-deployer</code> (PowerUserAccess + scoped IAM)</div>
+    <div class="detail">Single account &middot; lab path <code>aws/labs/vpn-site-to-site/</code> &middot; tags via AWS provider <code>default_tags</code>.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       ROW 3 — VNet / VPC headers (the network containers)
+       ============================================================ -->
+  <div class="box theme-blue" id="azure-vnet" style="left:20px; top:430px; width:770px;">
+    <div class="box-label">VNet <code>vnet-eastus</code> &nbsp; <code>10.10.0.0/16</code></div>
+    <div class="detail">Default Azure system route from workload subnet to the Gateway &mdash; no UDR needed for cross-cloud reach.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-orange" id="aws-vpc" style="left:810px; top:430px; width:770px;">
+    <div class="box-label">VPC <code>ccl-vpns2s-vpc</code> &nbsp; <code>10.20.0.0/16</code></div>
+    <div class="detail">DNS support and DNS hostnames ON (required for SSM). Single-AZ <code>us-east-1a</code> &mdash; learning lab, not HA exercise.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       ROW 4 — Gateway-tier resources (left/right per cloud)
+       Azure: GatewaySubnet | Public IP | VPN Gateway
+       AWS:   Public subnet | IGW | VGW
+       ============================================================ -->
+
+  <!-- Azure gateway tier -->
+  <div class="box theme-blue" id="azure-gw-subnet" style="left:20px; top:520px; width:240px;">
+    <div class="box-label">GatewaySubnet</div>
+    <div class="detail"><code>10.10.255.0/27</code></div>
+    <div class="detail"><strong>Name is mandatory</strong> &mdash; Azure rejects any other casing. /27 minimum.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-blue" id="azure-pip" style="left:270px; top:520px; width:240px;"
+       data-connect-to="internet" data-color="#f85149" data-label="tunnel endpoint">
+    <div class="box-label">Public IP <code>pip-vpngw</code></div>
+    <div class="detail">Standard SKU, Static. Required by VpnGw1 (Basic SKU PIP fails apply).</div>
+    <div class="detail">~$0.005/hr</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-blue" id="azure-vng" style="left:520px; top:520px; width:270px;"
+       data-connect-to="azure-pip" data-color="#58a6ff" data-label="binds">
+    <div class="box-label">VPN Gateway <code>vng-eastus</code></div>
+    <ul>
+      <li>type=Vpn, vpn_type=RouteBased</li>
+      <li>SKU <code>VpnGw1</code> &mdash; <strong>~$0.19/hr (dominant)</strong></li>
+      <li>active_active=false &middot; ASN 65010</li>
+      <li>APIPA <code>169.254.21.2</code></li>
+      <li>Provision: 30&ndash;45 min &middot; Delete: 10&ndash;20 min</li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- AWS gateway tier -->
+  <div class="box theme-orange" id="aws-public-subnet" style="left:810px; top:520px; width:240px;">
+    <div class="box-label">Public subnet</div>
+    <div class="detail"><code>ccl-vpns2s-public</code> &middot; <code>10.20.0.0/24</code></div>
+    <div class="detail">Reserved for bastion/NAT in future. No instances in v1.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-orange" id="aws-igw" style="left:1060px; top:520px; width:240px;">
+    <div class="box-label">Internet Gateway <code>ccl-vpns2s-igw</code></div>
+    <div class="detail">Egress for SSM Session Manager from the workload subnet (<code>0.0.0.0/0 &rarr; IGW</code>).</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-orange" id="aws-vgw" style="left:1310px; top:520px; width:270px;"
+       data-connect-to="internet" data-color="#f85149" data-label="tunnel endpoint">
+    <div class="box-label">VGW <code>ccl-vpns2s-vgw</code></div>
+    <ul>
+      <li><code>amazon_side_asn = 65020</code></li>
+      <li>standalone <code>aws_vpn_gateway_attachment</code></li>
+      <li>VGW itself: $0/hr (charge is on VPN Connection)</li>
+      <li>APIPA <code>169.254.21.1</code></li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       ROW 5 — Peer endpoint configs (LNG / Connection / CGW / VPN Conn)
+       ============================================================ -->
+
+  <!-- Azure peer config -->
+  <div class="box theme-purple" id="azure-lng" style="left:20px; top:740px; width:380px;"
+       data-connect-to="azure-vng" data-color="#d2a8ff" data-label="BGP peer config">
+    <div class="box-label">Local Network Gateway <code>lng-aws-tunnel1</code></div>
+    <ul>
+      <li><code>gateway_address</code> = AWS tunnel 1 public IP (paste from AWS output)</li>
+      <li><code>address_space = ["10.20.0.0/16"]</code> (bootstrap before BGP)</li>
+      <li><code>bgp_settings.asn = 65020</code></li>
+      <li><code>bgp_settings.bgp_peering_address = "169.254.21.1"</code></li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-blue" id="azure-conn" style="left:410px; top:740px; width:380px;"
+       data-connect-to="azure-lng" data-color="#58a6ff" data-label="links VNG &harr; LNG">
+    <div class="box-label">Connection <code>cn-azure-aws</code></div>
+    <ul>
+      <li><code>type = "IPsec"</code></li>
+      <li><code>shared_key = var.aws_tunnel1_psk</code> (sensitive)</li>
+      <li><code>enable_bgp = true</code> (required even though VNG &amp; LNG already have BGP)</li>
+      <li>Created only on Phase-3 apply (<code>create_connection = true</code>)</li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- AWS peer config -->
+  <div class="box theme-purple" id="aws-cgw" style="left:810px; top:740px; width:380px;"
+       data-connect-to="aws-vgw" data-color="#d2a8ff" data-label="remote peer config">
+    <div class="box-label">Customer Gateway <code>ccl-vpns2s-cgw-azure</code></div>
+    <ul>
+      <li><code>ip_address = &lt;azure_gw_public_ip&gt;</code> (paste from Azure output)</li>
+      <li><code>bgp_asn = 65010</code></li>
+      <li><code>type = "ipsec.1"</code></li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-orange" id="aws-vpn-conn" style="left:1200px; top:740px; width:380px;"
+       data-connect-to="aws-cgw" data-color="#f78166" data-label="VPN connection">
+    <div class="box-label">VPN Connection <code>ccl-vpns2s-vpn-azure</code></div>
+    <ul>
+      <li><strong>~$0.05/hr</strong> (charged regardless of tunnel state)</li>
+      <li><code>static_routes_only = false</code> (BGP)</li>
+      <li><code>tunnel1_inside_cidr = "169.254.21.0/30"</code> &mdash; force-new attribute</li>
+      <li>Tunnel 1 PSK: <code>random_password</code> (<code>[A-Za-z0-9._]{8,64}</code>, no leading 0)</li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       ROW 6 — Routing layer
+       ============================================================ -->
+  <div class="box theme-purple" id="azure-routing" style="left:20px; top:920px; width:770px;">
+    <div class="box-label">Azure routing &mdash; system route, no UDR</div>
+    <div class="detail">Workload subnet inherits the Azure default system route <code>10.20.0.0/16 &rarr; VPN GW</code> after BGP brings it in. No user-defined route table needed for cross-cloud reach in v1.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-purple" id="aws-rt" style="left:810px; top:920px; width:770px;">
+    <div class="box-label">Workload route table <code>ccl-vpns2s-rt-workload</code> &mdash; <code>aws_vpn_gateway_route_propagation</code> ON</div>
+    <div class="detail">Static <code>0.0.0.0/0 &rarr; IGW</code> (for SSM). Propagated <code>10.10.0.0/16 &rarr; VGW</code> learned via BGP from Azure once the tunnel is up.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       ROW 7 — Workload subnets (headers)
+       ============================================================ -->
+  <div class="box theme-yellow" id="azure-workload-subnet" style="left:20px; top:1010px; width:770px;">
+    <div class="box-label">Workload subnet <code>snet-workload</code> &nbsp; <code>10.10.1.0/24</code></div>
+    <div class="detail">Holds the Azure test VM. NSG associated at the subnet level.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-yellow" id="aws-workload-subnet" style="left:810px; top:1010px; width:770px;">
+    <div class="box-label">Workload subnet <code>ccl-vpns2s-workload</code> &nbsp; <code>10.20.1.0/24</code> &middot; <code>us-east-1a</code></div>
+    <div class="detail">Holds the AWS test EC2. EC2 has a public IPv4 for SSM bootstrap; SG is the only thing protecting public ingress.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       ROW 8 — Workload resources: NSG/NIC/VM (Azure), SG/IAM/EC2 (AWS)
+       ============================================================ -->
+
+  <!-- Azure workload -->
+  <div class="box theme-blue" id="azure-nsg" style="left:20px; top:1090px; width:240px;">
+    <div class="box-label">NSG <code>nsg-workload</code></div>
+    <ul>
+      <li>100 ALLOW Inbound ICMP from <code>10.20.0.0/16</code></li>
+      <li>110 ALLOW Inbound TCP/22 from <code>10.10.0.0/16</code></li>
+      <li>default deny inbound elsewhere</li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-blue" id="azure-nic" style="left:270px; top:1090px; width:240px;">
+    <div class="box-label">NIC <code>nic-azure-workload</code></div>
+    <div class="detail">Dynamic private IP. <strong>No public IP</strong> &mdash; reach via Bastion / in-VNet SSH only.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-yellow" id="azure-vm" style="left:520px; top:1090px; width:270px;"
+       data-connect-to="aws-vm" data-color="#3fb950" data-label="cross-cloud ICMP test">
+    <div class="box-label">VM <code>vm-azure-workload</code></div>
+    <ul>
+      <li><code>Standard_B1s</code> (~$0.0104/hr)</li>
+      <li>Ubuntu 22.04 LTS Gen2 (Canonical jammy)</li>
+      <li>Standard_LRS 30GB OS disk, deleted on VM delete</li>
+      <li>SSH key auth only &middot; admin <code>azureuser</code></li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- AWS workload -->
+  <div class="box theme-orange" id="aws-sg" style="left:810px; top:1090px; width:240px;">
+    <div class="box-label">Security Group <code>ccl-vpns2s-sg-workload</code></div>
+    <ul>
+      <li>Ingress ALLOW ICMP from <code>10.10.0.0/16</code></li>
+      <li>Egress ALLOW ALL (SSM + return ICMP)</li>
+      <li>No 0.0.0.0/0 ingress on any port</li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-orange" id="aws-iam" style="left:1060px; top:1090px; width:240px;">
+    <div class="box-label">IAM role + Instance Profile</div>
+    <div class="detail"><code>cross-cloud-labs-vpn-s2s-workload-role</code></div>
+    <ul>
+      <li>Trust: EC2 service</li>
+      <li>Attached: <code>AmazonSSMManagedInstanceCore</code></li>
+      <li>Long prefix required by deployer policy</li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-yellow" id="aws-vm" style="left:1310px; top:1090px; width:270px;">
+    <div class="box-label">EC2 <code>ccl-vpns2s-workload</code></div>
+    <ul>
+      <li><code>t3.micro</code> (~$0.0104/hr, free-tier eligible)</li>
+      <li>AMI Amazon Linux 2023 via <code>data "aws_ami"</code></li>
+      <li>EBS gp3 8GB</li>
+      <li>SSM-accessed (no SSH key in v1)</li>
+      <li>Public IPv4 (~$0.005/hr) for SSM bootstrap</li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       ROW 9 — BGP peering details (full width, between topology and reference panels)
+       ============================================================ -->
+  <div class="box theme-purple" id="bgp" style="left:20px; top:1290px; width:1560px;">
+    <div class="box-label">BGP peering &mdash; ASN 65010 &harr; ASN 65020 (APIPA peers inside the IPSec tunnel)</div>
+    <table>
+      <tr><th>Endpoint</th><th>APIPA</th><th>ASN</th><th>Advertises</th><th>Why pinned</th></tr>
+      <tr><td>AWS VGW</td><td><code>169.254.21.1</code></td><td>65020</td><td><code>10.20.0.0/16</code></td><td rowspan="2">Azure <code>local_network_gateway.bgp_settings.bgp_peering_address</code> needs the remote APIPA known at apply time, so the tunnel inside CIDR can't be left to AWS auto-pick.</td></tr>
+      <tr><td>Azure VPN GW</td><td><code>169.254.21.2</code></td><td>65010</td><td><code>10.10.0.0/16</code></td></tr>
+    </table>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       ROW 10 — Phased apply order (full width)
+       ============================================================ -->
+  <div class="box theme-info" id="apply-order" style="left:20px; top:1450px; width:1560px;">
+    <h4>Three-phase apply (because both sides have local Terraform state &mdash; manual outputs-as-inputs paste)</h4>
+    <ul>
+      <li><strong>Phase 1 &mdash; Azure (Side A):</strong> apply VNet, GatewaySubnet, Public IP, VPN GW, NSG, NIC, VM. <code>create_connection = false</code> (LNG + Connection NOT created). Capture <code>azure_gw_public_ip</code>, <code>azure_bgp_asn</code>, <code>azure_vnet_cidr</code>. <strong>Slow: 30&ndash;45 min for VPN GW.</strong></li>
+      <li><strong>Phase 2 &mdash; AWS (Side B):</strong> paste Azure outputs into AWS tfvars. Apply VPC, subnets, IGW, VGW + attachment, CGW (with Azure IP), VPN Connection (BGP, <code>tunnel1_inside_cidr</code> pinned), workload RT + propagation, SG, IAM, EC2. Capture <code>aws_tunnel1_address</code>, <code>aws_tunnel1_psk</code> (sensitive).</li>
+      <li><strong>Phase 3 &mdash; Azure (Side A round 2):</strong> paste AWS outputs into Azure tfvars, flip <code>create_connection = true</code>. Apply creates LNG (<code>lng-aws-tunnel1</code>) + Connection (<code>cn-azure-aws</code>). Tunnel comes up within 1&ndash;2 minutes; BGP exchanges prefixes shortly after.</li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       ROW 11 — Cost summary | Validation
+       ============================================================ -->
+  <div class="box theme-info" id="cost" style="left:20px; top:1640px; width:780px;">
+    <h4>Cost summary</h4>
+    <table>
+      <tr><th>Item</th><th>Side</th><th>$/hr</th><th>$/mo (24x7)</th></tr>
+      <tr><td>VPN Gateway VpnGw1</td><td>Azure</td><td>~0.190</td><td>~140 <strong>(dominant)</strong></td></tr>
+      <tr><td>VPN Connection (1 pair, both tunnels)</td><td>AWS</td><td>~0.050</td><td>~36</td></tr>
+      <tr><td>Public IP Standard</td><td>Azure</td><td>~0.005</td><td>~3.60</td></tr>
+      <tr><td>EC2 public IPv4</td><td>AWS</td><td>~0.005</td><td>~3.65</td></tr>
+      <tr><td>B1s VM</td><td>Azure</td><td>~0.010</td><td>~7.50</td></tr>
+      <tr><td>t3.micro EC2</td><td>AWS</td><td>~0.010</td><td>~7.50 (free-tier eligible)</td></tr>
+      <tr><td>OS disks (combined)</td><td>both</td><td>~0.003</td><td>~5</td></tr>
+    </table>
+    <div class="detail" style="margin-top:6px"><strong>Daily total nightly-teardown (~8h up):</strong> ~$2.10/day. <strong>Left running 24h:</strong> ~$6.50/day &asymp; ~$200/mo. <strong>Daily teardown is non-negotiable.</strong></div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-info" id="validation" style="left:820px; top:1640px; width:760px;">
+    <h4>Validation (after Phase 3)</h4>
+    <div class="detail" style="margin-bottom:2px"><strong>Azure tunnel state:</strong></div>
+    <pre>az network vpn-connection show \
+  -g rg-cross-cloud-labs-vpn-eastus \
+  -n cn-azure-aws \
+  --query connectionStatus -o tsv
+# expect: Connected</pre>
+    <div class="detail" style="margin:6px 0 2px 0"><strong>AWS tunnel state:</strong></div>
+    <pre>aws ec2 describe-vpn-connections \
+  --query 'VpnConnections[].VgwTelemetry[].Status'
+# tunnel1: UP   tunnel2: DOWN (expected)</pre>
+    <div class="detail" style="margin-top:6px"><strong>Cross-cloud ping</strong> &mdash; SSH into Azure VM via Bastion / SSM into AWS EC2, then <code>ping &lt;other-side-private-ip&gt;</code>.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       ROW 12 — Teardown | Packet flow
+       ============================================================ -->
+  <div class="box theme-info" id="teardown" style="left:20px; top:1940px; width:780px;">
+    <h4>Teardown order (per-side <code>destroy.sh</code> via TF dependency graph)</h4>
+    <div class="detail"><strong>Azure (10&ndash;25 min total):</strong> Connection &rarr; LNG &rarr; VPN GW (slow!) &rarr; Public IP &rarr; subnets &rarr; VNet &rarr; RG.</div>
+    <div class="detail"><strong>AWS (~5 min total):</strong> EC2 &rarr; SG &rarr; IAM role/profile &rarr; VPN Connection &rarr; CGW &rarr; VGW Attachment &rarr; VGW &rarr; route propagation &rarr; route tables &rarr; subnets &rarr; IGW &rarr; VPC.</div>
+    <div class="detail" style="margin-top:6px"><strong>Common hangs:</strong> Azure Public IP can't delete while VPN GW holds it (TF orders implicitly). AWS VGW detach hangs if VPN Connection or route propagation lingers (both managed). If Azure Connection destroy hangs, the AWS Connection is the likely cause.</div>
+    <div class="detail" style="margin-top:6px"><strong>Stranded-cost watch:</strong> AWS public IPv4s ($0.005/hr each since 2024); Azure public IPs (~$0.005/hr). Both intentionally absent on workload VMs.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-green" id="flow" style="left:820px; top:1940px; width:760px;">
+    <div class="box-label">End-to-end packet flow (Azure VM &rarr; AWS EC2)</div>
+    <ul>
+      <li>1. Azure VM ICMP &rarr; AWS EC2 private IP (<code>10.20.1.x</code>)</li>
+      <li>2. Azure system route table: <code>10.20.0.0/16 &rarr; VPN GW</code> (BGP-learned)</li>
+      <li>3. VPN GW encrypts, IPSec to AWS tunnel 1 IP over internet</li>
+      <li>4. AWS tunnel decrypts &rarr; VGW &rarr; route table sees <code>10.20.1.0/24 &rarr; local</code></li>
+      <li>5. SG: ALLOW ICMP from <code>10.10.0.0/16</code> &rarr; reaches EC2</li>
+      <li>6. EC2 responds; reverse path uses BGP-learned <code>10.10.0.0/16 &rarr; VGW</code></li>
+      <li>7. Azure NSG: ALLOW ICMP from <code>10.20.0.0/16</code> &rarr; reaches VM</li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       ROW 13 — Gotchas (full width, multi-column)
+       ============================================================ -->
+  <div class="box theme-info" id="gotchas" style="left:20px; top:2160px; width:1560px;">
+    <h4>Gotchas (from cross-cloud + per-cloud ref docs)</h4>
+    <ul style="columns:3; column-gap:30px">
+      <li><strong>GatewaySubnet name</strong> &mdash; must be exactly <code>GatewaySubnet</code>. Any other casing fails apply.</li>
+      <li><strong>Public IP SKU</strong> &mdash; VpnGw1 needs Standard. Basic SKU PIP fails validation.</li>
+      <li><strong>BGP requires Gen2 SKU</strong> &mdash; Basic SKU has no BGP.</li>
+      <li><strong>PSK char set</strong> &mdash; AWS PSK must match <code>[A-Za-z0-9._]{8,64}</code>, no leading <code>0</code>.</li>
+      <li><strong>BGP ASN reservations</strong> &mdash; AWS rejects 7224, 9059, 17493, 22697&hellip;. Stay in private range 64512&ndash;65534.</li>
+      <li><strong>Azure default ASN is 65515</strong> &mdash; we picked 65010/65020 to avoid accidental clash.</li>
+      <li><strong>Asymmetric tunnels</strong> &mdash; tunnel 2 stays <code>DOWN</code>; not an error.</li>
+      <li><strong>Encryption domain</strong> &mdash; route-based both sides &rarr; <code>0/0 &harr; 0/0</code>; routing decides actual flow.</li>
+      <li><strong>MSS clamping</strong> &mdash; AWS enforces by default; if 1500-byte pings work but TCP stalls, suspect MSS.</li>
+      <li><strong>Tunnel inside CIDR is force-new on AWS</strong> &mdash; changing it replaces VPN Connection, generates new tunnel public IPs.</li>
+      <li><strong>Apply slowness</strong> &mdash; Azure VPN GW 30&ndash;45 min, AWS VPN Connection ~4 min.</li>
+      <li><strong>Public IPv4 cost (AWS, since 2024)</strong> &mdash; every EIP, every default-assigned EC2 public IP, even attached, $0.005/hr.</li>
+      <li><strong>IAM names need <code>cross-cloud-labs-</code> prefix</strong> &mdash; deployer policy only authorises IAM actions on ARNs matching that prefix.</li>
+      <li><strong>Active-active needed for HA</strong> &mdash; using both AWS tunnels requires Azure VPN GW <code>active_active = true</code>, two PIPs, two LNG/Conn pairs. Out of scope v1.</li>
+      <li><strong>AWS workload subnet has 0/0 to IGW</strong> &mdash; technically internet-attached so SSM works without VPC endpoints. SG ingress is the only protection.</li>
+      <li><strong>Azure VM is private-only</strong> &mdash; reach via Bastion / in-VNet jump.</li>
+      <li><strong>Tag actions are load-bearing</strong> &mdash; AWS provider <code>default_tags</code> tags resources at create time; missing <code>iam:Tag*</code> permissions fail the create silently-then-loudly.</li>
+      <li><strong>CRLF in <code>.env</code></strong> &mdash; Windows line endings break <code>source ../../../.env</code>; strip with <code>sed -i 's/\r$//'</code> or pipe through <code>tr -d '\r'</code>.</li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+</div><!-- end canvas -->
+
+<script>
+// ====================================================================
+// CORE ENGINE (verbatim from .claude/interactive-diagram-template.md)
+// ====================================================================
+const canvas = document.getElementById('canvas');
+const boxes = document.querySelectorAll('.box');
+const svg = document.getElementById('connectorSvg');
+const STORAGE_KEY = 'diagram-layout-' + document.title.replace(/\W+/g, '-').substring(0, 40);
+
+let dragState = null;
+let resizeState = null;
+let editMode = false;
+
+const defaultPositions = {};
+boxes.forEach(box => {
+  defaultPositions[box.id] = { left: box.style.left, top: box.style.top, width: box.style.width };
+});
+
+function loadLayout() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return;
+    const layout = JSON.parse(saved);
+    boxes.forEach(box => {
+      if (layout[box.id]) {
+        box.style.left = layout[box.id].left;
+        box.style.top = layout[box.id].top;
+        if (layout[box.id].width) box.style.width = layout[box.id].width;
+      }
+    });
+  } catch(e) {}
+}
+
+function loadContent() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return;
+    const layout = JSON.parse(saved);
+    boxes.forEach(box => {
+      if (layout[box.id] && layout[box.id].html) {
+        box.innerHTML = layout[box.id].html;
+      }
+    });
+  } catch(e) {}
+}
+
+function saveLayout() {
+  const layout = {};
+  boxes.forEach(box => {
+    layout[box.id] = {
+      left: box.style.left, top: box.style.top, width: box.style.width,
+      html: box.innerHTML
+    };
+  });
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
+  showToast('Layout + text edits saved');
+}
+
+function resetPositions() {
+  boxes.forEach(box => {
+    if (defaultPositions[box.id]) {
+      box.style.left = defaultPositions[box.id].left;
+      box.style.top = defaultPositions[box.id].top;
+      box.style.width = defaultPositions[box.id].width;
+    }
+  });
+  localStorage.removeItem(STORAGE_KEY);
+  drawConnectors();
+  showToast('Layout reset to default');
+}
+
+function showToast(msg) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  Object.assign(t.style, {
+    position:'fixed', bottom:'20px', left:'50%', transform:'translateX(-50%)',
+    background:'#238636', color:'#fff', padding:'8px 20px', borderRadius:'6px',
+    fontSize:'13px', zIndex:'9999', fontFamily:'inherit'
+  });
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2000);
+}
+
+boxes.forEach(box => {
+  box.addEventListener('mousedown', (e) => {
+    if (e.target.classList.contains('resize-handle')) {
+      resizeState = { box, startX: e.clientX, startWidth: box.offsetWidth };
+      box.classList.add('dragging');
+      e.preventDefault();
+      return;
+    }
+    if (editMode) return;
+    const rect = box.getBoundingClientRect();
+    dragState = { box, offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top };
+    box.classList.add('dragging');
+    e.preventDefault();
+  });
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (dragState) {
+    const r = canvas.getBoundingClientRect();
+    dragState.box.style.left = Math.max(0, e.clientX - r.left - dragState.offsetX + canvas.scrollLeft) + 'px';
+    dragState.box.style.top = Math.max(0, e.clientY - r.top - dragState.offsetY + canvas.scrollTop) + 'px';
+    drawConnectors();
+  }
+  if (resizeState) {
+    resizeState.box.style.width = Math.max(200, resizeState.startWidth + e.clientX - resizeState.startX) + 'px';
+    drawConnectors();
+  }
+});
+
+document.addEventListener('mouseup', () => {
+  if (dragState) { dragState.box.classList.remove('dragging'); dragState = null; }
+  if (resizeState) { resizeState.box.classList.remove('dragging'); resizeState = null; }
+});
+
+function getCenter(el) {
+  return { x: (parseFloat(el.style.left)||0) + el.offsetWidth/2, y: (parseFloat(el.style.top)||0) + el.offsetHeight/2 };
+}
+function getEdgePoint(el, tc) {
+  const l=parseFloat(el.style.left)||0, t=parseFloat(el.style.top)||0, w=el.offsetWidth, h=el.offsetHeight;
+  const cx=l+w/2, cy=t+h/2, dx=tc.x-cx, dy=tc.y-cy, ax=Math.abs(dx), ay=Math.abs(dy);
+  if (ax*h > ay*w) { const s=dx>0?1:-1; return {x:cx+s*w/2, y:cy+dy*(w/2)/ax}; }
+  else { const s=dy>0?1:-1; return {x:cx+dx*(h/2)/ay, y:cy+s*h/2}; }
+}
+function drawConnectors() {
+  svg.querySelectorAll('line, text.conn-label').forEach(el => el.remove());
+  boxes.forEach(box => {
+    const tid = box.dataset.connectTo;
+    if (!tid) return;
+    const target = document.getElementById(tid);
+    if (!target) return;
+    const color = box.dataset.color || '#8b949e';
+    const label = box.dataset.label || '';
+    const from = getEdgePoint(box, getCenter(target));
+    const to = getEdgePoint(target, getCenter(box));
+    let mc = 'gray';
+    if (color.includes('3fb950')) mc='green';
+    else if (color.includes('58a6ff')) mc='blue';
+    else if (color.includes('f85149')) mc='red';
+    else if (color.includes('d2a8ff')) mc='purple';
+    else if (color.includes('f78166')) mc='orange';
+    else if (color.includes('d29922')) mc='yellow';
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1',from.x); line.setAttribute('y1',from.y);
+    line.setAttribute('x2',to.x); line.setAttribute('y2',to.y);
+    line.setAttribute('stroke',color); line.setAttribute('stroke-dasharray','6,3');
+    line.setAttribute('stroke-width','2'); line.setAttribute('marker-end',`url(#arr-${mc})`);
+    svg.appendChild(line);
+    if (label) {
+      const txt = document.createElementNS('http://www.w3.org/2000/svg','text');
+      txt.classList.add('conn-label');
+      txt.setAttribute('x',(from.x+to.x)/2); txt.setAttribute('y',(from.y+to.y)/2-6);
+      txt.setAttribute('fill',color); txt.setAttribute('font-size','10');
+      txt.setAttribute('font-family',"'Segoe UI',Consolas,monospace");
+      txt.setAttribute('text-anchor','middle'); txt.textContent=label;
+      svg.appendChild(txt);
+    }
+  });
+}
+
+function toggleEditMode() {
+  editMode = !editMode;
+  const btn = document.getElementById('editToggle');
+  const hint = document.getElementById('mode-hint');
+  if (editMode) {
+    btn.textContent = 'Edit Mode: ON'; btn.style.background = '#238636'; btn.style.color = '#fff';
+    hint.textContent = 'EDIT MODE — Double-click any text to edit. Click elsewhere to finish.';
+    boxes.forEach(b => b.style.cursor = 'text');
+  } else {
+    btn.textContent = 'Edit Mode: OFF'; btn.style.background = '#30363d'; btn.style.color = '';
+    hint.innerHTML = 'Drag boxes to reposition &bull; Double-click text to edit';
+    boxes.forEach(b => b.style.cursor = 'grab');
+    document.querySelectorAll('[contenteditable="true"]').forEach(el => {
+      el.removeAttribute('contenteditable'); el.classList.remove('editable-active');
+    });
+  }
+}
+
+canvas.addEventListener('dblclick', (e) => {
+  const target = e.target;
+  if (target.classList.contains('resize-handle') || target.classList.contains('box') ||
+      target.closest('svg') || target.tagName === 'BUTTON' || target.closest('.legend-swatch')) return;
+  if (!editMode) toggleEditMode();
+  const el = target.closest('.box-label, .detail, h3, h4, div, span, strong, td, th, li, pre');
+  if (!el || el.classList.contains('box')) return;
+  if (el.getAttribute('contenteditable') === 'true') return;
+  el.setAttribute('contenteditable', 'true');
+  el.classList.add('editable-active');
+  el.focus();
+  const sel = window.getSelection(), range = document.createRange();
+  range.selectNodeContents(el); sel.removeAllRanges(); sel.addRange(range);
+  e.stopPropagation(); e.preventDefault();
+  const finish = () => { el.removeAttribute('contenteditable'); el.classList.remove('editable-active'); el.removeEventListener('blur',finish); el.removeEventListener('keydown',onKey); };
+  const onKey = (ke) => { if (ke.key==='Enter'&&!ke.shiftKey){ke.preventDefault();el.blur();} if (ke.key==='Escape') el.blur(); };
+  el.addEventListener('blur', finish); el.addEventListener('keydown', onKey);
+});
+
+async function exportPNG() {
+  showToast('Generating PNG...');
+  try {
+    if (!window.html2canvas) {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      document.head.appendChild(s);
+      await new Promise((res, rej) => { s.onload=res; s.onerror=rej; });
+    }
+    const c = await html2canvas(document.getElementById('canvas'), { backgroundColor:'#0d1117', scale:2, useCORS:true, logging:false });
+    const a = document.createElement('a');
+    a.download = document.title.replace(/\W+/g,'-') + '.png';
+    a.href = c.toDataURL('image/png'); a.click();
+    showToast('PNG downloaded!');
+  } catch(err) { showToast('Export failed: '+err.message); }
+}
+
+loadLayout();
+loadContent();
+drawConnectors();
+window.addEventListener('resize', drawConnectors);
+</script>
+</body>
+</html>
