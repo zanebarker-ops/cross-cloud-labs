@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>cross-cloud-labs — Claude Code architecture</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Consolas, monospace; background: #0d1117; color: #c9d1d9; overflow: auto; }
+
+  /* ---- Toolbar ---- */
+  .toolbar { position: fixed; top: 0; left: 0; right: 0; z-index: 1000; background: #161b22; border-bottom: 1px solid #30363d; padding: 8px 20px; display: flex; align-items: center; gap: 12px; }
+  .toolbar h1 { color: #58a6ff; font-size: 16px; flex: 1; }
+  .toolbar button { background: #238636; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 12px; cursor: pointer; font-family: inherit; }
+  .toolbar button:hover { background: #2ea043; }
+  .toolbar button.secondary { background: #30363d; }
+  .toolbar button.secondary:hover { background: #484f58; }
+  .toolbar .info { color: #8b949e; font-size: 11px; }
+
+  /* ---- Canvas ---- */
+  .canvas { position: relative; width: 3400px; height: 2400px; margin-top: 50px; }
+
+  /* ---- Draggable boxes ---- */
+  .box { position: absolute; border: 2px solid; border-radius: 10px; padding: 12px 12px 12px; cursor: grab; user-select: none; transition: box-shadow 0.15s; }
+  .box:hover { box-shadow: 0 0 16px rgba(88,166,255,0.25); }
+  .box.dragging { cursor: grabbing; box-shadow: 0 0 24px rgba(88,166,255,0.4); z-index: 500; opacity: 0.92; }
+  .box.editing { cursor: text; }
+
+  /* ---- Inline editing ---- */
+  .editable-active { outline: 1px dashed #58a6ff; outline-offset: 2px; cursor: text; min-width: 20px; min-height: 1em; border-radius: 2px; background: rgba(88,166,255,0.06); }
+
+  /* ---- Common element styles ---- */
+  .box-label { font-weight: bold; font-size: 13px; margin-bottom: 4px; }
+  .detail { font-size: 11px; color: #8b949e; margin-bottom: 6px; line-height: 1.5; }
+  .box ul { font-size: 11px; color: #c9d1d9; padding-left: 16px; margin-top: 4px; line-height: 1.55; }
+  .box li { margin-bottom: 1px; }
+  .box code { background: #21262d; border-radius: 3px; padding: 1px 4px; font-size: 10px; color: #f0883e; }
+
+  /* ---- Resize handle ---- */
+  .resize-handle { position: absolute; bottom: 0; right: 0; width: 16px; height: 16px; cursor: nwse-resize; opacity: 0.3; }
+  .resize-handle:hover { opacity: 0.7; }
+  .resize-handle::after { content: ''; position: absolute; bottom: 3px; right: 3px; width: 8px; height: 8px; border-right: 2px solid #8b949e; border-bottom: 2px solid #8b949e; }
+
+  /* ---- SVG connectors ---- */
+  svg.connectors { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+
+  /* ---- Tags ---- */
+  .tag { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 10px; font-weight: 600; margin-left: 4px; vertical-align: middle; }
+  .tag-allow  { background: #3fb95022; color: #3fb950; border: 1px solid #3fb950; }
+  .tag-ask    { background: #d2992222; color: #d29922; border: 1px solid #d29922; }
+  .tag-deny   { background: #f8514922; color: #f85149; border: 1px solid #f85149; }
+  .tag-hook   { background: #f7816622; color: #f78166; border: 1px solid #f78166; }
+  .tag-rule   { background: #58a6ff22; color: #58a6ff; border: 1px solid #58a6ff; }
+
+  /* ---- Color themes ---- */
+  /* Logical roles (not Dev/Test/Prod environments — this diagram is about
+     the Claude config system itself, so themes encode role, not env). */
+  .theme-blue    { border-color: #58a6ff; background: rgba(88,166,255,0.04); }   /* Claude session core */
+  .theme-blue    .box-label { color: #58a6ff; }
+  .theme-green   { border-color: #3fb950; background: rgba(63,185,80,0.04); }    /* Routines, allowed actions */
+  .theme-green   .box-label { color: #3fb950; }
+  .theme-red     { border-color: #f85149; background: rgba(248,81,73,0.04); }    /* Forbidden / deny */
+  .theme-red     .box-label { color: #f85149; }
+  .theme-orange  { border-color: #f78166; background: rgba(247,129,102,0.06); }  /* Hooks / safeguards / deployer identities */
+  .theme-orange  .box-label { color: #f78166; }
+  .theme-purple  { border-color: #d2a8ff; background: rgba(210,168,255,0.04); }  /* Subagents */
+  .theme-purple  .box-label { color: #d2a8ff; }
+  .theme-yellow  { border-color: #d29922; background: rgba(210,153,34,0.04); }   /* Permissions / "ask" gate / cloud resources */
+  .theme-yellow  .box-label { color: #d29922; }
+  .theme-gray    { border-color: #8b949e; background: rgba(139,148,158,0.05); }  /* External actors, memory, source-of-truth context */
+  .theme-gray    .box-label { color: #8b949e; }
+  .theme-info    { border-color: #30363d; background: #161b22; }                 /* Legend / informational panels */
+  .theme-info h4 { font-size: 12px; color: #58a6ff; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>cross-cloud-labs &mdash; Claude Code architecture</h1>
+  <span class="info" id="mode-hint">Drag boxes to reposition &bull; Double-click text to edit</span>
+  <button class="secondary" id="editToggle" onclick="toggleEditMode()">Edit Mode: OFF</button>
+  <button class="secondary" onclick="resetPositions()">Reset Layout</button>
+  <button class="secondary" onclick="saveLayout()">Save Layout</button>
+  <button onclick="exportPNG()">Export PNG</button>
+</div>
+
+<div class="canvas" id="canvas">
+
+  <svg class="connectors" id="connectorSvg">
+    <defs>
+      <marker id="arr-gray"   markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#8b949e"/></marker>
+      <marker id="arr-green"  markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#3fb950"/></marker>
+      <marker id="arr-blue"   markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#58a6ff"/></marker>
+      <marker id="arr-red"    markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#f85149"/></marker>
+      <marker id="arr-purple" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#d2a8ff"/></marker>
+      <marker id="arr-orange" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#f78166"/></marker>
+      <marker id="arr-yellow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#d29922"/></marker>
+    </defs>
+  </svg>
+
+  <!-- ============================================================
+       LEGEND
+       ============================================================ -->
+  <div class="box theme-info" id="legend" style="left:20px; top:20px; width:340px;">
+    <h4>Color legend (logical role)</h4>
+    <div class="detail" style="line-height:1.7">
+      <span class="tag tag-rule">Blue</span> &mdash; Claude session core / control flow<br>
+      <span class="tag tag-hook">Orange</span> &mdash; Hooks, safeguards, deployer identities<br>
+      <span class="tag tag-ask">Yellow</span> &mdash; Permissions / cloud resources<br>
+      <span class="tag" style="background:#d2a8ff22;color:#d2a8ff;border:1px solid #d2a8ff">Purple</span> &mdash; Subagents<br>
+      <span class="tag tag-allow">Green</span> &mdash; Routines, allowed actions<br>
+      <span class="tag tag-deny">Red</span> &mdash; Forbidden / deny tier<br>
+      <span class="tag" style="background:#8b949e22;color:#8b949e;border:1px solid #8b949e">Gray</span> &mdash; External actors, memory, source-of-truth refs
+    </div>
+    <div class="detail" style="margin-top:8px">
+      Lines: dashed arrows show direction of influence (load order, gating, invocation, mutation).
+      Each box shows ONE outgoing relationship; proximity implies grouping.
+    </div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       LAYER 1 — INPUTS (top row)
+       ============================================================ -->
+
+  <div class="box theme-gray" id="user" style="left:420px; top:20px; width:200px;"
+       data-connect-to="harness" data-color="#8b949e" data-label="prompts">
+    <div class="box-label">User (Zane)</div>
+    <div class="detail">Azure expert learning AWS. Drives every change manually.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-gray" id="memory" style="left:680px; top:20px; width:300px;"
+       data-connect-to="harness" data-color="#8b949e" data-label="loaded each turn">
+    <div class="box-label">Auto-memory</div>
+    <div class="detail"><code>~/.claude/projects/.../memory/</code></div>
+    <ul>
+      <li>user profile, preferences</li>
+      <li>project decisions (state/auth/scope)</li>
+      <li>worktree layout (Azure↔AWS sessions)</li>
+      <li>feedback (e.g., always check branch first)</li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-blue" id="claudemd" style="left:1040px; top:20px; width:300px;"
+       data-connect-to="harness" data-color="#58a6ff" data-label="loaded each turn">
+    <div class="box-label">CLAUDE.md (operating guide)</div>
+    <div class="detail">Project-level standing instructions. <code>.claude/CLAUDE.md</code></div>
+    <ul>
+      <li>6 hard rules (teardown, cost, state, env, PR, refarch)</li>
+      <li>Repo layout + tagging convention</li>
+      <li>Audience calibration (Azure&harr;AWS analogues)</li>
+      <li>Connectivity roadmap (VPN&rarr;vWAN&rarr;TGW)</li>
+      <li>Subagent dispatch table</li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       LAYER 2 — CLAUDE SESSION CORE
+       ============================================================ -->
+
+  <div class="box theme-blue" id="harness" style="left:420px; top:340px; width:560px;"
+       data-connect-to="settings" data-color="#58a6ff" data-label="every tool call">
+    <div class="box-label">Claude Code harness &mdash; main session</div>
+    <div class="detail">
+      Reads CLAUDE.md + memory on every turn. Plans the task, decides which tool to call.
+      Tool calls are intercepted by the harness, not run directly.
+    </div>
+    <ul>
+      <li>Reasons about user request</li>
+      <li>Decides: direct tool, subagent, or ask user</li>
+      <li>Routes Bash / Read / Edit / Write / Agent calls through permission checks</li>
+      <li>Receives subagent results into context</li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       LAYER 3 — POLICY: settings.json + hooks
+       ============================================================ -->
+
+  <div class="box theme-yellow" id="settings" style="left:60px; top:600px; width:340px;"
+       data-connect-to="gate-ask" data-color="#d29922" data-label="tier check">
+    <div class="box-label">settings.json &mdash; permission policy</div>
+    <div class="detail">Static allow/ask/deny patterns for Bash/Read/Write tool inputs.</div>
+    <ul>
+      <li><span class="tag tag-allow">allow</span> read-only TF, AWS describe-*, az show, git status/diff/log</li>
+      <li><span class="tag tag-ask">ask</span> tf apply/destroy, IAM/EC2 create-delete, gh pr merge</li>
+      <li><span class="tag tag-deny">deny</span> rm -rf /*, push origin main, Read(./.env)</li>
+      <li>env: <code>TF_IN_AUTOMATION=1</code></li>
+      <li>Wires <code>PreToolUse</code> hook below</li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-orange" id="hooks" style="left:440px; top:600px; width:340px;"
+       data-connect-to="gate-hook" data-color="#f78166" data-label="exit 2 = block">
+    <div class="box-label">hooks/block-main-write.sh</div>
+    <div class="detail">PreToolUse Bash hook. Backstop for the bare-<code>git push</code> case the static deny pattern can't catch.</div>
+    <ul>
+      <li>Reads tool input via <code>jq</code></li>
+      <li>Skips non-git commands fast (~5ms)</li>
+      <li>If <code>git commit</code>/<code>git push</code> AND HEAD on main/master &rarr; exit 2 (block)</li>
+      <li>Fail-closed: missing <code>jq</code> &rarr; exit 1 (block)</li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       LAYER 4 — PERMISSION GATES (the 4 outcomes)
+       ============================================================ -->
+
+  <div class="box theme-green" id="gate-allow" style="left:60px; top:920px; width:200px;"
+       data-connect-to="tf" data-color="#3fb950" data-label="runs immediately">
+    <div class="box-label">allow &rarr; run</div>
+    <div class="detail">Read-only / reversible. No prompt.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-yellow" id="gate-ask" style="left:280px; top:920px; width:200px;"
+       data-connect-to="tf" data-color="#d29922" data-label="user OK &rarr; run">
+    <div class="box-label">ask &rarr; prompt user</div>
+    <div class="detail">State change. Awaits explicit approval.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-red" id="gate-deny" style="left:500px; top:920px; width:200px;">
+    <div class="box-label">deny &rarr; refused</div>
+    <div class="detail">No context where this is right. Hard block.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-orange" id="gate-hook" style="left:720px; top:920px; width:240px;">
+    <div class="box-label">hook block &rarr; refused</div>
+    <div class="detail">Runtime state didn't pass (e.g., on main branch). Stderr shown to Claude.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       LAYER 5 — SUBAGENTS (right column)
+       ============================================================ -->
+
+  <div class="box theme-purple" id="agent-aws" style="left:1380px; top:20px; width:300px;"
+       data-connect-to="harness" data-color="#d2a8ff" data-label="returns answer">
+    <div class="box-label">aws-expert (subagent)</div>
+    <div class="detail">AWS service guidance. Always frames via Azure analogue. Refuses Direct Connect.</div>
+    <div class="detail">Tools: Read, Grep, Glob, Bash, WebFetch, WebSearch</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-purple" id="agent-azure" style="left:1380px; top:170px; width:300px;"
+       data-connect-to="harness" data-color="#d2a8ff" data-label="returns answer">
+    <div class="box-label">azure-expert (subagent)</div>
+    <div class="detail">Use sparingly &mdash; user is the Azure expert. Reserved for vWAN, edge cases, design validation.</div>
+    <div class="detail">Tools: Read, Grep, Glob, Bash, WebFetch, WebSearch</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-purple" id="agent-cr" style="left:1380px; top:320px; width:300px;"
+       data-connect-to="r6-review" data-color="#d2a8ff" data-label="invoked by">
+    <div class="box-label">code-reviewer (subagent)</div>
+    <div class="detail">Diff review &mdash; correctness, hidden bugs, repo conventions, cost surprises, teardown story.</div>
+    <div class="detail">Output: Blocker / Should fix / Nit. Tools: Read, Grep, Glob, Bash.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-purple" id="agent-sr" style="left:1380px; top:480px; width:300px;"
+       data-connect-to="r6-review" data-color="#d2a8ff" data-label="invoked by">
+    <div class="box-label">security-reviewer (subagent)</div>
+    <div class="detail">IAM/RBAC scoping, secrets in git, public exposure, SG/NSG holes, SSH from 0.0.0.0/0.</div>
+    <div class="detail">Output: Critical / High / Medium / Info.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-purple" id="agent-tr" style="left:1380px; top:640px; width:300px;"
+       data-connect-to="r6-review" data-color="#d2a8ff" data-label="invoked by">
+    <div class="box-label">terraform-reviewer (subagent)</div>
+    <div class="detail">HCL-specific: provider pins, state safety, lifecycle, drift, idempotency. Forbids <code>prevent_destroy</code>.</div>
+    <div class="detail">Output: Blocker / Should fix / Nit.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       LAYER 6 — ROUTINES (workflows that emerge from rules + agents + hooks)
+       ============================================================ -->
+
+  <div class="box theme-info" id="routines-header" style="left:60px; top:1100px; width:1200px;">
+    <h4>Recurring workflows (&ldquo;routines&rdquo;) &mdash; how every change is expected to flow</h4>
+    <div class="detail">Encoded across CLAUDE.md, settings.json, hooks, and reviewer subagents. Named here so they can be invoked explicitly.</div>
+  </div>
+
+  <div class="box theme-green" id="r1-plan" style="left:60px; top:1180px; width:280px;"
+       data-connect-to="tf" data-color="#3fb950" data-label="gates apply">
+    <div class="box-label">1. Plan &rarr; confirm &rarr; apply</div>
+    <div class="detail">State plan. Wait for user OK. <code>tf plan -out</code>. Show. Apply only on go.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-green" id="r2-phased" style="left:360px; top:1180px; width:280px;"
+       data-connect-to="tf" data-color="#3fb950" data-label="orchestrates">
+    <div class="box-label">2. Phased cross-cloud apply</div>
+    <div class="detail">Side A (no peer info) &rarr; Side B (paste A outputs) &rarr; Side A round 2 (paste B outputs, flip <code>create_connection</code>).</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-green" id="r3-teardown" style="left:660px; top:1180px; width:280px;"
+       data-connect-to="tf" data-color="#3fb950" data-label="runs destroy">
+    <div class="box-label">3. Daily teardown</div>
+    <div class="detail">Per-lab <code>destroy.sh</code> or repo-root <code>./teardown-all.sh</code>. End of every working day.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-green" id="r4-branchpr" style="left:960px; top:1180px; width:280px;"
+       data-connect-to="hooks" data-color="#3fb950" data-label="enforced by">
+    <div class="box-label">4. Branch + PR (never push to main)</div>
+    <div class="detail">Feature branch &rarr; commit &rarr; push &rarr; <code>gh pr create</code>. Backed by deny pattern + hook + repo-side pre-push hook.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-green" id="r5-doc" style="left:60px; top:1340px; width:280px;"
+       data-connect-to="refarch" data-color="#3fb950" data-label="updates">
+    <div class="box-label">5. Doc-as-source-of-truth</div>
+    <div class="detail">Every resource add/change ships with the matching <code>docs/reference-architectures/&lt;cloud&gt;/</code> doc in the same PR.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-green" id="r6-review" style="left:360px; top:1340px; width:280px;"
+       data-connect-to="tf" data-color="#3fb950" data-label="gates merge">
+    <div class="box-label">6. Pre-merge review (multi-agent)</div>
+    <div class="detail">code-reviewer + terraform-reviewer always; security-reviewer when IAM/net/secrets/public touched. Run in parallel.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-green" id="r7-cost" style="left:660px; top:1340px; width:280px;"
+       data-connect-to="tf" data-color="#3fb950" data-label="gates apply">
+    <div class="box-label">7. Cost-impact statement on PR</div>
+    <div class="detail">$/hr and $/month for any new billable resource. Dominant driver called out. Required by CLAUDE.md.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-green" id="r8-refresh" style="left:960px; top:1340px; width:280px;"
+       data-connect-to="refarch" data-color="#3fb950" data-label="updates after deploy">
+    <div class="box-label">8. Ref-arch refresh after deploy</div>
+    <div class="detail">When deploy reveals code-vs-doc drift, doc gets the truth. Same branch or follow-up PR.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       LAYER 7 — ACTION: terraform apply (the pinch point)
+       ============================================================ -->
+
+  <div class="box theme-info" id="tf" style="left:480px; top:1540px; width:380px;"
+       data-connect-to="aws-iam" data-color="#58a6ff" data-label="AWS_* creds">
+    <div class="box-label" style="color:#58a6ff">terraform apply / destroy</div>
+    <div class="detail">Local state. Sources <code>.env</code> for both clouds via <code>set -a &amp;&amp; source ../../../.env &amp;&amp; set +a</code>.</div>
+    <div class="detail">Reads AWS_* and ARM_* vars. Talks to both providers.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       LAYER 8 — DEPLOYER IDENTITIES
+       ============================================================ -->
+
+  <div class="box theme-orange" id="aws-iam" style="left:60px; top:1740px; width:380px;"
+       data-connect-to="aws-cloud" data-color="#f78166" data-label="creates">
+    <div class="box-label">terraform-deployer (AWS IAM user)</div>
+    <div class="detail">Programmatic access only. <code>PowerUserAccess</code> + inline <code>cross-cloud-labs-iam-scoped</code>.</div>
+    <ul>
+      <li>IAM actions limited to ARNs prefixed <code>cross-cloud-labs-*</code></li>
+      <li>Tag actions are load-bearing (default_tags applies at create)</li>
+      <li>Self-Deny on its own user ARN (no escalation)</li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-orange" id="azure-sp" style="left:880px; top:1740px; width:380px;"
+       data-connect-to="azure-cloud" data-color="#f78166" data-label="creates">
+    <div class="box-label">cross-cloud-labs-tf (Azure SP)</div>
+    <div class="detail">App Reg + SP, client-secret auth. <code>Contributor</code> at subscription scope.</div>
+    <ul>
+      <li>No RBAC role mutation, no Entra changes</li>
+      <li>Secret rotates yearly; <code>az ad app credential reset --append</code></li>
+      <li>Smoke test: <code>az login --service-principal ...</code></li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       LAYER 9 — CLOUD RESOURCES
+       ============================================================ -->
+
+  <div class="box theme-yellow" id="aws-cloud" style="left:60px; top:2000px; width:380px;"
+       data-connect-to="refarch" data-color="#d29922" data-label="must have ref doc">
+    <div class="box-label">AWS resources</div>
+    <div class="detail">VPC, subnets, IGW, VGW, CGW, VPN connection, route tables, SG, EC2, IAM role + instance profile.</div>
+    <div class="detail">All carry tags: owner=zane, project=cross-cloud-labs, lab=&lt;lab&gt;, managed_by=terraform.</div>
+    <div class="detail">Lab: <code>aws/labs/vpn-site-to-site/</code></div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-yellow" id="azure-cloud" style="left:880px; top:2000px; width:380px;"
+       data-connect-to="refarch" data-color="#d29922" data-label="must have ref doc">
+    <div class="box-label">Azure resources</div>
+    <div class="detail">RG, VNet, GatewaySubnet, workload subnet, public IP, VPN GW (VpnGw1, BGP ASN 65010), LNG, Connection, NSG, NIC, VM.</div>
+    <div class="detail">Same 4 tags applied via <code>tags</code> arg on each resource.</div>
+    <div class="detail">Lab: <code>azure/labs/vpn-site-to-site/</code></div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       LAYER 10 — SOURCE OF TRUTH (closes the loop)
+       ============================================================ -->
+
+  <div class="box theme-info" id="refarch" style="left:480px; top:2000px; width:380px;">
+    <div class="box-label" style="color:#58a6ff">Reference architecture docs</div>
+    <div class="detail"><code>docs/reference-architectures/</code> &mdash; canonical source of truth.</div>
+    <ul>
+      <li><code>aws/</code> &mdash; VPC, IAM, VPN-S2S</li>
+      <li><code>azure/</code> &mdash; VNet, IAM (SP), VPN gateway</li>
+      <li><code>cross-cloud/</code> &mdash; VPN-S2S, vWAN+VPN, TGW+VPN</li>
+      <li><code>claude/</code> &mdash; THIS section (operating guide, subagents, hooks, settings, routines, templates)</li>
+    </ul>
+    <div class="detail" style="margin-top:6px"><strong>Rule:</strong> if code and doc disagree, doc is canonical &mdash; or update doc deliberately.</div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       LAYER 11 — TEMPLATES (sidebar, lower right)
+       ============================================================ -->
+
+  <div class="box theme-blue" id="templates" style="left:1380px; top:1540px; width:300px;">
+    <div class="box-label">Interactive HTML templates</div>
+    <div class="detail"><code>.claude/interactive-diagram-template.md</code> &mdash; this file's skeleton.</div>
+    <div class="detail"><code>.claude/interactive-docs-template.md</code> &mdash; doc-style editable layouts.</div>
+    <ul>
+      <li>Single-file HTML, drag/edit/save/export</li>
+      <li>Mandatory env color scheme (Dev=green, Test=blue, Prod=red&hellip;) when env-scoped</li>
+      <li>This diagram repurposes themes for logical roles &mdash; see legend</li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- ============================================================
+       LAYER 12 — KEY FACTS (lower right info panel)
+       ============================================================ -->
+
+  <div class="box theme-info" id="facts" style="left:1380px; top:1820px; width:300px;">
+    <h4>Standing constraints</h4>
+    <ul>
+      <li>$100 AWS credit must last ~6 months</li>
+      <li>Azure tenant is real money (no credit)</li>
+      <li>Local TF state on both sides &rarr; manual outputs paste between sessions</li>
+      <li>Two parallel Claude sessions: AWS clone + Azure git worktree</li>
+      <li>Azure VPN GW: 30&ndash;45 min to provision, 10&ndash;20 min to destroy</li>
+      <li>Daily teardown is non-negotiable</li>
+    </ul>
+    <div class="resize-handle"></div>
+  </div>
+
+  <div class="box theme-info" id="failure-modes" style="left:1380px; top:2120px; width:300px;">
+    <h4>What stops bad things</h4>
+    <div class="detail" style="line-height:1.7">
+      <strong>Push to main:</strong> deny pattern + hook + repo pre-push hook (3 layers)<br>
+      <strong>Read .env:</strong> Read tool deny<br>
+      <strong>Surprise apply:</strong> ask tier on tf apply/destroy<br>
+      <strong>Forgotten resources:</strong> daily teardown routine + every-resource-needs-destroy rule<br>
+      <strong>Doc drift:</strong> reviewer agents + ref-arch-canonical rule
+    </div>
+    <div class="resize-handle"></div>
+  </div>
+
+</div><!-- end canvas -->
+
+<script>
+// ====================================================================
+// CORE ENGINE (verbatim from .claude/interactive-diagram-template.md)
+// ====================================================================
+const canvas = document.getElementById('canvas');
+const boxes = document.querySelectorAll('.box');
+const svg = document.getElementById('connectorSvg');
+const STORAGE_KEY = 'diagram-layout-' + document.title.replace(/\W+/g, '-').substring(0, 40);
+
+let dragState = null;
+let resizeState = null;
+let editMode = false;
+
+const defaultPositions = {};
+boxes.forEach(box => {
+  defaultPositions[box.id] = { left: box.style.left, top: box.style.top, width: box.style.width };
+});
+
+function loadLayout() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return;
+    const layout = JSON.parse(saved);
+    boxes.forEach(box => {
+      if (layout[box.id]) {
+        box.style.left = layout[box.id].left;
+        box.style.top = layout[box.id].top;
+        if (layout[box.id].width) box.style.width = layout[box.id].width;
+      }
+    });
+  } catch(e) {}
+}
+
+function loadContent() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return;
+    const layout = JSON.parse(saved);
+    boxes.forEach(box => {
+      if (layout[box.id] && layout[box.id].html) {
+        box.innerHTML = layout[box.id].html;
+      }
+    });
+  } catch(e) {}
+}
+
+function saveLayout() {
+  const layout = {};
+  boxes.forEach(box => {
+    layout[box.id] = {
+      left: box.style.left, top: box.style.top, width: box.style.width,
+      html: box.innerHTML
+    };
+  });
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
+  showToast('Layout + text edits saved');
+}
+
+function resetPositions() {
+  boxes.forEach(box => {
+    if (defaultPositions[box.id]) {
+      box.style.left = defaultPositions[box.id].left;
+      box.style.top = defaultPositions[box.id].top;
+      box.style.width = defaultPositions[box.id].width;
+    }
+  });
+  localStorage.removeItem(STORAGE_KEY);
+  drawConnectors();
+  showToast('Layout reset to default');
+}
+
+function showToast(msg) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  Object.assign(t.style, {
+    position:'fixed', bottom:'20px', left:'50%', transform:'translateX(-50%)',
+    background:'#238636', color:'#fff', padding:'8px 20px', borderRadius:'6px',
+    fontSize:'13px', zIndex:'9999', fontFamily:'inherit'
+  });
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2000);
+}
+
+boxes.forEach(box => {
+  box.addEventListener('mousedown', (e) => {
+    if (e.target.classList.contains('resize-handle')) {
+      resizeState = { box, startX: e.clientX, startWidth: box.offsetWidth };
+      box.classList.add('dragging');
+      e.preventDefault();
+      return;
+    }
+    if (editMode) return;
+    const rect = box.getBoundingClientRect();
+    dragState = { box, offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top };
+    box.classList.add('dragging');
+    e.preventDefault();
+  });
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (dragState) {
+    const r = canvas.getBoundingClientRect();
+    dragState.box.style.left = Math.max(0, e.clientX - r.left - dragState.offsetX + canvas.scrollLeft) + 'px';
+    dragState.box.style.top = Math.max(0, e.clientY - r.top - dragState.offsetY + canvas.scrollTop) + 'px';
+    drawConnectors();
+  }
+  if (resizeState) {
+    resizeState.box.style.width = Math.max(200, resizeState.startWidth + e.clientX - resizeState.startX) + 'px';
+    drawConnectors();
+  }
+});
+
+document.addEventListener('mouseup', () => {
+  if (dragState) { dragState.box.classList.remove('dragging'); dragState = null; }
+  if (resizeState) { resizeState.box.classList.remove('dragging'); resizeState = null; }
+});
+
+function getCenter(el) {
+  return { x: (parseFloat(el.style.left)||0) + el.offsetWidth/2, y: (parseFloat(el.style.top)||0) + el.offsetHeight/2 };
+}
+function getEdgePoint(el, tc) {
+  const l=parseFloat(el.style.left)||0, t=parseFloat(el.style.top)||0, w=el.offsetWidth, h=el.offsetHeight;
+  const cx=l+w/2, cy=t+h/2, dx=tc.x-cx, dy=tc.y-cy, ax=Math.abs(dx), ay=Math.abs(dy);
+  if (ax*h > ay*w) { const s=dx>0?1:-1; return {x:cx+s*w/2, y:cy+dy*(w/2)/ax}; }
+  else { const s=dy>0?1:-1; return {x:cx+dx*(h/2)/ay, y:cy+s*h/2}; }
+}
+function drawConnectors() {
+  svg.querySelectorAll('line, text.conn-label').forEach(el => el.remove());
+  boxes.forEach(box => {
+    const tid = box.dataset.connectTo;
+    if (!tid) return;
+    const target = document.getElementById(tid);
+    if (!target) return;
+    const color = box.dataset.color || '#8b949e';
+    const label = box.dataset.label || '';
+    const from = getEdgePoint(box, getCenter(target));
+    const to = getEdgePoint(target, getCenter(box));
+    let mc = 'gray';
+    if (color.includes('3fb950')) mc='green';
+    else if (color.includes('58a6ff')) mc='blue';
+    else if (color.includes('f85149')) mc='red';
+    else if (color.includes('d2a8ff')) mc='purple';
+    else if (color.includes('f78166')) mc='orange';
+    else if (color.includes('d29922')) mc='yellow';
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1',from.x); line.setAttribute('y1',from.y);
+    line.setAttribute('x2',to.x); line.setAttribute('y2',to.y);
+    line.setAttribute('stroke',color); line.setAttribute('stroke-dasharray','6,3');
+    line.setAttribute('stroke-width','2'); line.setAttribute('marker-end',`url(#arr-${mc})`);
+    svg.appendChild(line);
+    if (label) {
+      const txt = document.createElementNS('http://www.w3.org/2000/svg','text');
+      txt.classList.add('conn-label');
+      txt.setAttribute('x',(from.x+to.x)/2); txt.setAttribute('y',(from.y+to.y)/2-6);
+      txt.setAttribute('fill',color); txt.setAttribute('font-size','10');
+      txt.setAttribute('font-family',"'Segoe UI',Consolas,monospace");
+      txt.setAttribute('text-anchor','middle'); txt.textContent=label;
+      svg.appendChild(txt);
+    }
+  });
+}
+
+function toggleEditMode() {
+  editMode = !editMode;
+  const btn = document.getElementById('editToggle');
+  const hint = document.getElementById('mode-hint');
+  if (editMode) {
+    btn.textContent = 'Edit Mode: ON'; btn.style.background = '#238636'; btn.style.color = '#fff';
+    hint.textContent = 'EDIT MODE — Double-click any text to edit. Click elsewhere to finish.';
+    boxes.forEach(b => b.style.cursor = 'text');
+  } else {
+    btn.textContent = 'Edit Mode: OFF'; btn.style.background = '#30363d'; btn.style.color = '';
+    hint.innerHTML = 'Drag boxes to reposition &bull; Double-click text to edit';
+    boxes.forEach(b => b.style.cursor = 'grab');
+    document.querySelectorAll('[contenteditable="true"]').forEach(el => {
+      el.removeAttribute('contenteditable'); el.classList.remove('editable-active');
+    });
+  }
+}
+
+canvas.addEventListener('dblclick', (e) => {
+  const target = e.target;
+  if (target.classList.contains('resize-handle') || target.classList.contains('box') ||
+      target.closest('svg') || target.tagName === 'BUTTON' || target.closest('.legend-swatch')) return;
+  if (!editMode) toggleEditMode();
+  const el = target.closest('.box-label, .detail, h3, h4, div, span, strong, td, th, li');
+  if (!el || el.classList.contains('box')) return;
+  if (el.getAttribute('contenteditable') === 'true') return;
+  el.setAttribute('contenteditable', 'true');
+  el.classList.add('editable-active');
+  el.focus();
+  const sel = window.getSelection(), range = document.createRange();
+  range.selectNodeContents(el); sel.removeAllRanges(); sel.addRange(range);
+  e.stopPropagation(); e.preventDefault();
+  const finish = () => { el.removeAttribute('contenteditable'); el.classList.remove('editable-active'); el.removeEventListener('blur',finish); el.removeEventListener('keydown',onKey); };
+  const onKey = (ke) => { if (ke.key==='Enter'&&!ke.shiftKey){ke.preventDefault();el.blur();} if (ke.key==='Escape') el.blur(); };
+  el.addEventListener('blur', finish); el.addEventListener('keydown', onKey);
+});
+
+async function exportPNG() {
+  showToast('Generating PNG...');
+  try {
+    if (!window.html2canvas) {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      document.head.appendChild(s);
+      await new Promise((res, rej) => { s.onload=res; s.onerror=rej; });
+    }
+    const c = await html2canvas(document.getElementById('canvas'), { backgroundColor:'#0d1117', scale:2, useCORS:true, logging:false });
+    const a = document.createElement('a');
+    a.download = document.title.replace(/\W+/g,'-') + '.png';
+    a.href = c.toDataURL('image/png'); a.click();
+    showToast('PNG downloaded!');
+  } catch(err) { showToast('Export failed: '+err.message); }
+}
+
+loadLayout();
+loadContent();
+drawConnectors();
+window.addEventListener('resize', drawConnectors);
+</script>
+</body>
+</html>

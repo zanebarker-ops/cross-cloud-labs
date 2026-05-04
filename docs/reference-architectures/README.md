@@ -20,10 +20,13 @@ reference-architectures/
 │   ├── compute/            VM, Function, AKS, Container Apps
 │   ├── storage/            Storage Account, Managed Disks
 │   └── observability/      Log Analytics, Azure Monitor
-└── cross-cloud/            Connectivity patterns spanning both clouds
-    ├── vpn-site-to-site/
-    ├── azure-vwan-aws-vpn/
-    └── aws-tgw-azure-vpn/
+├── cross-cloud/            Connectivity patterns spanning both clouds
+│   ├── vpn-site-to-site/
+│   ├── azure-vwan-aws-vpn/
+│   └── aws-tgw-azure-vpn/
+└── claude/                 Claude Code config (operating guide, subagents,
+                            hooks, settings, routines, templates) — uses an
+                            adapted section template, see claude/README.md
 ```
 
 ## Required sections per doc
