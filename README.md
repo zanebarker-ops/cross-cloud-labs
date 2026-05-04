@@ -80,6 +80,10 @@ Bypass for a one-off legitimate need: `git push --no-verify`. Don't make a habit
 | 2 | Azure Virtual WAN with VPN site to AWS | not started |
 | 3 | AWS Transit Gateway as multi-VPC + cross-cloud hub | not started |
 
+## Wiki — start here
+
+For a narrative walkthrough of how the repo works end-to-end (prereqs, architecture, deploy, teardown, troubleshooting, cost, Claude workflow), see [`docs/wiki/`](docs/wiki/README.md).
+
 ## Reference architectures
 
 See [`docs/reference-architectures/`](docs/reference-architectures/). Every resource we deploy must have a doc here. If code and doc disagree, the doc wins (or update the doc deliberately).
