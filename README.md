@@ -4,6 +4,18 @@ Hands-on lab repo for AWS learning + Azure↔AWS cross-cloud connectivity. Singl
 
 Built and operated using [`claude-dev-toolkit`](https://github.com/zanebarker-ops/claude-dev-toolkit) — every hook, permission rule, subagent, and routine in `.claude/` traces back to a piece of the toolkit. This README is the front-of-repo guide; the [§ How this was built](#-how-this-was-built) section maps each toolkit artifact to where it shows up here.
 
+> ### Built overnight, unattended.
+>
+> Every Terraform module, the two-cloud apply sequence, all connectivity tests, every reference-architecture spec, the 7-page in-tree wiki, this README, and the architecture diagram were produced by a Claude Code session running **unattended overnight** — using exactly the toolkit and process described in [§ How this was built](#-how-this-was-built).
+>
+> **Why it was safe to leave running:**
+> - **Permission tiers** in [`.claude/settings.json`](.claude/settings.json) routed every command into `allow` (read-only state inspection — ran without prompting), `ask` (mutations like `terraform apply` / IAM changes — paused for the operator), or `deny` (push to `main`, read `.env` — refused outright). The agent never had to decide what was risky; the policy did.
+> - **Three layers of fail-closed hooks** ([`block-main-write.sh`](.claude/hooks/block-main-write.sh), [`.githooks/pre-push`](.githooks/pre-push), `Read(./.env)` deny in settings) made wrong paths abort instead of silently succeed.
+> - **Three review subagents** (`code-reviewer`, `security-reviewer`, `terraform-reviewer`) ran on every diff before commit — each in its own context, scoped to one concern.
+> - **Daily-teardown discipline** bounded the blast radius. Even if something had gone sideways, [`./teardown-all.sh`](teardown-all.sh) would have destroyed everything by morning.
+>
+> The PR-driven history you see on `main` is the same workflow the agent used — feature branches, multi-agent review, squash merges.
+
 > **Architecture diagram (8 Mermaid panels):** **<https://zanebarker-ops.github.io/cross-cloud-labs/>**
 >
 > Topology · Repo layout · Claude operating layer · Guardrails · Daily workflow · Three-phase apply · Teardown path · Toolkit→repo mapping.
