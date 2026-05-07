@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>cross-cloud-labs · system architecture</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #131a32;
+      --ink: #e6ecff;
+      --muted: #94a0c8;
+      --line: #2b3458;
+      --azure: #2196f3;
+      --aws: #ff9900;
+      --claude: #c084fc;
+      --good: #34d399;
+      --warn: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    header { padding: 28px 32px 8px; }
+    header h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
+    header p { margin: 0; color: var(--muted); max-width: 920px; }
+    main { padding: 0 24px 64px; max-width: 1500px; margin: 0 auto; }
+    nav.toc { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 32px 18px; }
+    nav.toc a { padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); text-decoration: none; font-size: 13px; }
+    nav.toc a:hover { color: var(--ink); border-color: var(--ink); }
+    section { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px 24px; margin: 18px 0; }
+    section h2 { margin: 0 0 6px; font-size: 17px; letter-spacing: 0.01em; }
+    section h2 .badge { display: inline-block; margin-left: 10px; padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 6px; background: var(--line); color: var(--muted); vertical-align: middle; }
+    section .lede { color: var(--muted); margin: 0 0 14px; max-width: 940px; }
+    .mermaid { background: #0f1530; border-radius: 10px; padding: 18px; overflow: auto; }
+    .legend { display: flex; flex-wrap: wrap; gap: 18px; padding: 6px 0 0; color: var(--muted); font-size: 13px; }
+    .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+    .legend .azure::before { background: var(--azure); }
+    .legend .aws::before { background: var(--aws); }
+    .legend .claude::before { background: var(--claude); }
+    .legend .good::before { background: var(--good); }
+    .legend .warn::before { background: var(--warn); }
+    footer { color: var(--muted); padding: 20px 32px 40px; font-size: 13px; }
+    footer a { color: var(--muted); }
+    code { background: #0f1530; padding: 1px 6px; border-radius: 4px; color: #d2def0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>cross-cloud-labs · system architecture</h1>
+    <p>End-to-end view of the lab: Azure↔AWS site-to-site VPN, the Claude Code operating layer that drives every change, and the daily lifecycle from branch → plan → apply → teardown. Built and operated using <a href="https://github.com/zanebarker-ops/claude-dev-toolkit" style="color:#c084fc">claude-dev-toolkit</a>.</p>
+  </header>
+
+  <nav class="toc">
+    <a href="#topology">1 · Cross-cloud topology</a>
+    <a href="#repo">2 · Repo &amp; two-roots model</a>
+    <a href="#claude">3 · Claude Code operating layer</a>
+    <a href="#guards">4 · Branch &amp; secret guardrails</a>
+    <a href="#workflow">5 · Daily workflow loop</a>
+    <a href="#deploy">6 · Three-phase apply</a>
+    <a href="#teardown">7 · Teardown path</a>
+    <a href="#toolkit">8 · Toolkit → repo mapping</a>
+  </nav>
+
+  <main>
+
+    <section id="topology">
+      <h2>1 · Cross-cloud topology <span class="badge">runtime</span></h2>
+      <p class="lede">IPSec/IKEv2 tunnel between Azure VPN Gateway (eastus2) and AWS VGW (us-east-1) with BGP inside the tunnel. Single tunnel attached today; AWS hands out two by default and the second is staged but not wired. Inside CIDR <code>169.254.21.0/30</code> is locked because Azure's <code>local_network_gateway</code> needs the AWS-side BGP peer IP at apply time.</p>
+      <div class="mermaid">
+flowchart LR
+  subgraph AZ["Azure · eastus2 · subscription / SP cross-cloud-labs-tf"]
+    direction TB
+    AZ_VNET["VNet 10.10.0.0/16"]
+    AZ_GWS["GatewaySubnet 10.10.255.0/27"]
+    AZ_WSUB["workload subnet 10.10.1.0/24"]
+    AZ_PIP["Public IP (zoned, Standard SKU)"]
+    AZ_VPN["VPN Gateway · VpnGw1AZ · ASN 65010"]
+    AZ_LNG["Local Network Gateway → AWS T1"]
+    AZ_CONN["Connection (PSK)"]
+    AZ_NSG["NSG · ICMP from 10.20.0.0/16"]
+    AZ_VM["VM · Standard_D2als_v7 · 10.10.1.4"]
+    AZ_VNET --> AZ_GWS --> AZ_VPN
+    AZ_VNET --> AZ_WSUB --> AZ_NSG --> AZ_VM
+    AZ_VPN --- AZ_PIP
+    AZ_VPN --- AZ_LNG
+    AZ_VPN --- AZ_CONN
+  end
+
+  subgraph AWS["AWS · us-east-1 · IAM user terraform-deployer"]
+    direction TB
+    AWS_VPC["VPC 10.20.0.0/16"]
+    AWS_WSUB["workload subnet 10.20.1.0/24"]
+    AWS_IGW["IGW (SSM egress)"]
+    AWS_VGW["VGW · ASN 65020"]
+    AWS_CGW["Customer Gateway → Azure PIP"]
+    AWS_VPNC["VPN Connection (BGP, 2 tunnels)"]
+    AWS_RT["Route Table · BGP propagate"]
+    AWS_SG["SG · ICMP from 10.10.0.0/16"]
+    AWS_EC2["EC2 · t3.micro AL2023 · 10.20.1.88"]
+    AWS_VPC --> AWS_WSUB --> AWS_SG --> AWS_EC2
+    AWS_VPC --- AWS_IGW
+    AWS_VPC --- AWS_VGW
+    AWS_VGW --- AWS_CGW --- AWS_VPNC
+    AWS_VPC --- AWS_RT
+  end
+
+  Net((( Public Internet )))
+  AZ_PIP <-->|IPSec / IKEv2 · tunnel 1| Net
+  Net <-->|tunnel 1 · 169.254.21.0/30| AWS_VPNC
+  AZ_VPN <-. eBGP 65010 ↔ 65020 .-> AWS_VGW
+  AZ_VM <-. ICMP RTT validation .-> AWS_EC2
+
+  classDef az fill:#103a64,stroke:#2196f3,color:#e6ecff;
+  classDef aw fill:#5a3a0e,stroke:#ff9900,color:#e6ecff;
+  classDef net fill:#1a2342,stroke:#94a0c8,color:#e6ecff;
+  class AZ_VNET,AZ_GWS,AZ_WSUB,AZ_PIP,AZ_VPN,AZ_LNG,AZ_CONN,AZ_NSG,AZ_VM az;
+  class AWS_VPC,AWS_WSUB,AWS_IGW,AWS_VGW,AWS_CGW,AWS_VPNC,AWS_RT,AWS_SG,AWS_EC2 aw;
+  class Net net;
+      </div>
+      <div class="legend">
+        <span class="azure">Azure resources</span>
+        <span class="aws">AWS resources</span>
+      </div>
+    </section>
+
+    <section id="repo">
+      <h2>2 · Repo layout &amp; two-roots model <span class="badge">code</span></h2>
+      <p class="lede">Each cloud is its own Terraform root with local state. The two share no backend — the seam between them is a manual outputs-as-inputs paste, formalized as the three-phase apply (§6). This is what lets two parallel Claude sessions (one per worktree) work the lab without colliding on plan/apply.</p>
+      <div class="mermaid">
+flowchart TB
+  ROOT[("cross-cloud-labs/")]
+  CLAUDE[".claude/<br/>CLAUDE.md · agents/ · hooks/ · settings.json"]
+  GH[".github/<br/>FUNDING · PR template"]
+  HOOKS[".githooks/pre-push<br/>(activated by scripts/install-git-hooks.sh)"]
+  AWS_TF["aws/labs/vpn-site-to-site/<br/>main.tf · variables.tf · outputs.tf · destroy.sh"]
+  AZ_TF["azure/labs/vpn-site-to-site/<br/>main.tf · variables.tf · outputs.tf · destroy.sh"]
+  DOCS["docs/<br/>wiki/ · reference-architectures/ · study-guides/ · index.html"]
+  REFARCH["docs/reference-architectures/<br/>aws/ · azure/ · cross-cloud/ · claude/"]
+  TEAR["teardown-all.sh<br/>(walks labs/, runs each destroy.sh)"]
+  ENV[".env.example<br/>(real .env is gitignored)"]
+
+  ROOT --> CLAUDE
+  ROOT --> GH
+  ROOT --> HOOKS
+  ROOT --> AWS_TF
+  ROOT --> AZ_TF
+  ROOT --> DOCS
+  ROOT --> TEAR
+  ROOT --> ENV
+  DOCS --> REFARCH
+
+  AWS_TF -. "outputs (PSK, tunnel IP, VGW ASN)" .-> AZ_TF
+  AZ_TF -. "outputs (Azure GW PIP)" .-> AWS_TF
+
+  classDef code fill:#10243a,stroke:#3b82f6,color:#e6ecff;
+  classDef cl fill:#2a1d3f,stroke:#c084fc,color:#e6ecff;
+  classDef ops fill:#1a3024,stroke:#34d399,color:#e6ecff;
+  class AWS_TF,AZ_TF code;
+  class CLAUDE,REFARCH cl;
+  class HOOKS,TEAR ops;
+      </div>
+    </section>
+
+    <section id="claude">
+      <h2>3 · Claude Code operating layer <span class="badge">.claude/</span></h2>
+      <p class="lede">Every Claude turn against this repo loads <code>CLAUDE.md</code> (the 6 hard rules + audience calibration), routes through <code>settings.json</code> (allow / ask / deny tiers), passes through the <code>PreToolUse</code> hook (live branch check), and can dispatch to one of five specialized subagents that run in their own context with their own tool subset.</p>
+      <div class="mermaid">
+flowchart LR
+  USER([Operator prompt])
+  CLAUDE["Claude Code session"]
+  CMD["CLAUDE.md<br/>6 hard rules · tagging · Azure↔AWS analogues · roadmap"]
+  SET["settings.json<br/>allow · ask · deny · env (TF_IN_AUTOMATION=1)"]
+  HOOK["hooks/block-main-write.sh<br/>PreToolUse · matcher: Bash<br/>blocks git commit/push when on main/master"]
+  AGENTS{{"agents/"}}
+  A1["aws-expert"]
+  A2["azure-expert"]
+  A3["code-reviewer"]
+  A4["security-reviewer"]
+  A5["terraform-reviewer"]
+  TOOL["Bash / Edit / Read / Write"]
+  CLOUD[(Cloud APIs · git · gh)]
+
+  USER --> CLAUDE
+  CLAUDE -. always loaded .- CMD
+  CLAUDE --> SET
+  SET --> HOOK
+  HOOK -- exit 0 --> TOOL
+  HOOK -- exit 2: blocked --> CLAUDE
+  TOOL --> CLOUD
+  CLAUDE -. dispatch .-> AGENTS
+  AGENTS --> A1 & A2 & A3 & A4 & A5
+
+  classDef cl fill:#2a1d3f,stroke:#c084fc,color:#e6ecff;
+  classDef gate fill:#3a2010,stroke:#fbbf24,color:#e6ecff;
+  classDef ext fill:#1a2342,stroke:#94a0c8,color:#e6ecff;
+  class CMD,SET,AGENTS,A1,A2,A3,A4,A5 cl;
+  class HOOK gate;
+  class CLOUD ext;
+      </div>
+      <div class="legend">
+        <span class="claude">Claude config</span>
+        <span class="warn">Gate (can block)</span>
+      </div>
+    </section>
+
+    <section id="guards">
+      <h2>4 · Branch &amp; secret guardrails (defense in depth) <span class="badge">policy</span></h2>
+      <p class="lede">Three independent layers enforce <em>"never push to main"</em> and <em>"never read .env"</em>. Any one of them is enough; together they catch human mistakes, agent mistakes, and tool-routed mistakes. Bypass is a deliberate <code>--no-verify</code>, not an accident.</p>
+      <div class="mermaid">
+flowchart LR
+  ATTEMPT[/"Attempted action<br/>(git push · git commit · Read .env)"/]
+
+  subgraph L1["Layer 1 · settings.json deny patterns"]
+    D1["deny: git push origin main*"]
+    D2["deny: git push --force origin main*"]
+    D3["deny: Read(./.env), Read(./**/.env)"]
+  end
+
+  subgraph L2["Layer 2 · PreToolUse hook (live state)"]
+    H1["block-main-write.sh<br/>reads git branch --show-current<br/>blocks commit/push when on main/master"]
+  end
+
+  subgraph L3["Layer 3 · git pre-push (server-bound)"]
+    G1[".githooks/pre-push<br/>rejects push to refs/heads/main or master<br/>incl. deletions"]
+  end
+
+  RESULT_OK([allowed])
+  RESULT_BLOCK([blocked + actionable error])
+
+  ATTEMPT --> L1 --> L2 --> L3
+  L1 -- denied --> RESULT_BLOCK
+  L2 -- exit 2 --> RESULT_BLOCK
+  L3 -- non-zero --> RESULT_BLOCK
+  L3 -- pass --> RESULT_OK
+
+  classDef gate fill:#3a2010,stroke:#fbbf24,color:#e6ecff;
+  classDef ok fill:#163328,stroke:#34d399,color:#e6ecff;
+  classDef bad fill:#3a1717,stroke:#ef4444,color:#e6ecff;
+  class L1,L2,L3,D1,D2,D3,H1,G1 gate;
+  class RESULT_OK ok;
+  class RESULT_BLOCK bad;
+      </div>
+    </section>
+
+    <section id="workflow">
+      <h2>5 · Daily workflow loop <span class="badge">process</span></h2>
+      <p class="lede">Every change to a cloud resource follows this loop. The shape comes from claude-dev-toolkit (issue → worktree → plan → confidence-gate → review → PR), adapted to Terraform-driven labs (apply replaces deploy, ref-arch refresh replaces docs, daily teardown replaces "leave it running").</p>
+      <div class="mermaid">
+flowchart LR
+  S0([Day start])
+  S1["Branch · feature/<br/>(git worktree per session)"]
+  S2["Plan in chat<br/>state intent · cost · teardown"]
+  S3{"Confidence<br/>≥ 8/10?"}
+  S4["Edit Terraform<br/>+ ref-arch doc same PR"]
+  S5["terraform plan<br/>(allow tier)"]
+  S6["terraform apply<br/>(ask tier)"]
+  S7["Review · code + security + terraform agents"]
+  S8["PR → main<br/>(hooks gate the push)"]
+  S9["Merge"]
+  T1["./teardown-all.sh<br/>(end of day)"]
+  S0 --> S1 --> S2 --> S3
+  S3 -- no --> S2
+  S3 -- yes --> S4 --> S5 --> S6 --> S7 --> S8 --> S9 --> T1 --> S0
+
+  classDef act fill:#10243a,stroke:#3b82f6,color:#e6ecff;
+  classDef gate fill:#3a2010,stroke:#fbbf24,color:#e6ecff;
+  classDef tear fill:#163328,stroke:#34d399,color:#e6ecff;
+  class S1,S2,S4,S5,S6,S7,S8,S9 act;
+  class S3 gate;
+  class T1 tear;
+      </div>
+    </section>
+
+    <section id="deploy">
+      <h2>6 · Three-phase apply (cross-cloud) <span class="badge">runbook</span></h2>
+      <p class="lede">No shared backend → no <code>terraform_remote_state</code> → outputs cross the seam by hand. Phase 1 stands up the Azure-side endpoint so AWS knows where to dial. Phase 2 stands up AWS and emits the PSK + tunnel IP. Phase 3 binds the Azure side to the AWS endpoint and brings BGP up.</p>
+      <div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant Op as Operator
+  participant AzS as Azure session<br/>(worktree A)
+  participant AwS as AWS session<br/>(worktree B)
+  participant AzC as Azure cloud
+  participant AwC as AWS cloud
+
+  Op->>AzS: phase 1 — apply (create_connection=false)
+  AzS->>AzC: VNet, GatewaySubnet, PIP, VPN GW
+  AzC-->>AzS: output azure_gw_public_ip
+
+  Op->>AwS: phase 2 — paste azure_gw_public_ip into tfvars
+  Op->>AwS: terraform apply
+  AwS->>AwC: VPC, IGW, VGW, Customer GW (= Azure PIP), VPN Connection
+  AwC-->>AwS: outputs aws_tunnel1_address, aws_tunnel1_psk, aws_vgw_asn
+
+  Op->>AzS: phase 3 — paste AWS outputs, flip create_connection=true
+  Op->>AzS: terraform apply
+  AzS->>AzC: Local Network Gateway + Connection (PSK)
+  AzC-->>Op: tunnel UP, BGP peer established
+  AwC-->>Op: tunnel 1 up, 1 BGP route accepted
+  Op->>Op: ICMP test 10.10.1.4 ↔ 10.20.1.88
+      </div>
+    </section>
+
+    <section id="teardown">
+      <h2>7 · Teardown path <span class="badge">cost</span></h2>
+      <p class="lede">Hard rule: every resource is destroyable on demand. Each lab ships a <code>destroy.sh</code> wrapper; <code>teardown-all.sh</code> at the repo root walks <code>labs/</code> and runs them in sequence. Running the teardown daily keeps the $100 AWS promo credit lasting ~6 months and Azure spend in cents/day.</p>
+      <div class="mermaid">
+flowchart LR
+  ENV[".env loaded into shell"]
+  ROOT["./teardown-all.sh"]
+  W{"per-lab dir<br/>has main.tf?"}
+  S{"has *.tfstate or<br/>.terraform/?"}
+  D["terraform destroy -auto-approve"]
+  SKIP["skip"]
+  DONE([all labs destroyed])
+
+  ENV --> ROOT --> W
+  W -- no --> SKIP --> DONE
+  W -- yes --> S
+  S -- no --> SKIP
+  S -- yes --> D --> DONE
+
+  classDef tear fill:#163328,stroke:#34d399,color:#e6ecff;
+  class ROOT,D,DONE tear;
+      </div>
+    </section>
+
+    <section id="toolkit">
+      <h2>8 · Toolkit → repo mapping <span class="badge">provenance</span></h2>
+      <p class="lede">Every concept on this page traces back to a piece of <a href="https://github.com/zanebarker-ops/claude-dev-toolkit" style="color:#c084fc">claude-dev-toolkit</a>. The wiki page <em>"Deployed with claude-dev-toolkit"</em> walks each row in detail.</p>
+      <div class="mermaid">
+flowchart LR
+  subgraph T["claude-dev-toolkit"]
+    T1["templates/CLAUDE.md.template"]
+    T2["config/settings.json.template<br/>(allow / ask / deny tiers)"]
+    T3["hooks/* (PreToolUse pattern)"]
+    T4["hookify-rules/<br/>block-direct-main-dev<br/>block-env-modification<br/>block-hook-bypass"]
+    T5["templates/agents.md<br/>(specialized subagent pattern)"]
+    T6["plugins/pr-review-toolkit<br/>(multi-agent review)"]
+    T7["templates/worktree-workflow.md<br/>(8/10 confidence gate)"]
+    T8["scripts/claude-session.sh<br/>(crash-proof tmux)"]
+  end
+
+  subgraph R["cross-cloud-labs"]
+    R1[".claude/CLAUDE.md<br/>6 hard rules + analogues"]
+    R2[".claude/settings.json<br/>terraform/aws/az/git tiers"]
+    R3[".claude/hooks/block-main-write.sh"]
+    R4[".githooks/pre-push<br/>+ settings.json deny patterns"]
+    R5[".claude/agents/<br/>aws- · azure- · code- · security- · terraform-reviewer"]
+    R6["routine 6 — pre-merge multi-agent review"]
+    R7["two-worktree split<br/>aws/* vs azure/* path ownership"]
+    R8["per-session tmux<br/>(when applicable)"]
+  end
+
+  T1 --> R1
+  T2 --> R2
+  T3 --> R3
+  T4 --> R4
+  T5 --> R5
+  T6 --> R6
+  T7 --> R7
+  T8 --> R8
+
+  classDef cl fill:#2a1d3f,stroke:#c084fc,color:#e6ecff;
+  classDef code fill:#10243a,stroke:#3b82f6,color:#e6ecff;
+  class T1,T2,T3,T4,T5,T6,T7,T8 cl;
+  class R1,R2,R3,R4,R5,R6,R7,R8 code;
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    Authoritative per-resource specs: <code>docs/reference-architectures/</code>. Narrative walkthrough: <code>docs/wiki/</code>. Toolkit: <a href="https://github.com/zanebarker-ops/claude-dev-toolkit">github.com/zanebarker-ops/claude-dev-toolkit</a>.
+  </footer>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "dark",
+      securityLevel: "strict",
+      flowchart: { curve: "basis", htmlLabels: true, useMaxWidth: true },
+      sequence: { useMaxWidth: true },
+      themeVariables: {
+        background: "#0f1530",
+        primaryColor: "#1f2a4a",
+        primaryTextColor: "#e6ecff",
+        primaryBorderColor: "#3b82f6",
+        lineColor: "#94a0c8",
+        secondaryColor: "#3b82f6",
+        tertiaryColor: "#1a2342",
+        fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial"
+      }
+    });
+  </script>
+</body>
+</html>

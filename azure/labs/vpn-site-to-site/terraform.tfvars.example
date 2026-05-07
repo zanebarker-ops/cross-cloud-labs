@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars and fill in values. terraform.tfvars is gitignored.
+#
+# Phase 1 (first apply) — only admin_ssh_public_key is required.
+# Phase 3 (second apply, after AWS session has applied) — fill in the AWS outputs
+# and flip create_connection to true.
+
+admin_ssh_public_key = "ssh-ed25519 AAAA... your_pubkey_here"
+
+# ---- Populate these AFTER the AWS session runs `terraform apply` and gives you their outputs ----
+# Until you have them, leave create_connection = false (phase 1 apply only).
+
+create_connection   = false
+# aws_tunnel1_address = "x.x.x.x"
+# aws_tunnel1_psk     = "<paste from `cd aws/labs/vpn-site-to-site && terraform output -raw aws_tunnel1_psk`>"
+# aws_vgw_asn         = 65020
+# aws_vpc_cidr        = "10.20.0.0/16"
