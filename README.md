@@ -140,35 +140,312 @@ cross-cloud-labs/
 
 ## Architecture in one diagram
 
-The full system architecture (cross-cloud topology, the Claude operating layer, defense-in-depth guardrails, the daily workflow loop, the three-phase apply sequence, the teardown path, and the toolkit→repo provenance map) is published as 8 Mermaid panels at:
+The full system architecture (cross-cloud topology, the Claude operating layer, defense-in-depth guardrails, the daily workflow loop, the three-phase apply sequence, the teardown path, and the toolkit→repo provenance map) is published as 8 panels at:
 
 **<https://zanebarker-ops.github.io/cross-cloud-labs/>**
 
 Source: [`docs/index.html`](docs/index.html) — single self-contained file, no build step, just an embedded Mermaid CDN.
 
-A text rendering of the runtime topology, for the lazy-clicker:
+All 8 diagrams are also rendered inline below — GitHub renders ` ```mermaid ` blocks natively, so the same content shows up here without leaving the README.
 
+### 01 · Cross-cloud topology
+
+IPSec/IKEv2 tunnel between Azure VPN Gateway (eastus2) and AWS VGW (us-east-1) with BGP inside the tunnel. Single tunnel attached today; AWS hands out two by default and the second is staged but not wired. Inside CIDR `169.254.21.0/30` is locked because Azure's `local_network_gateway` needs the AWS-side BGP peer IP at apply time.
+
+```mermaid
+flowchart LR
+  subgraph AZ["Azure · eastus2 · subscription / SP cross-cloud-labs-tf"]
+    direction TB
+    AZ_VNET["VNet 10.10.0.0/16"]
+    AZ_GWS["GatewaySubnet 10.10.255.0/27"]
+    AZ_WSUB["workload subnet 10.10.1.0/24"]
+    AZ_PIP["Public IP (zoned, Standard SKU)"]
+    AZ_VPN["VPN Gateway · VpnGw1AZ · ASN 65010"]
+    AZ_LNG["Local Network Gateway → AWS T1"]
+    AZ_CONN["Connection (PSK)"]
+    AZ_NSG["NSG · ICMP from 10.20.0.0/16"]
+    AZ_VM["VM · Standard_D2als_v7 · 10.10.1.4"]
+    AZ_VNET --> AZ_GWS --> AZ_VPN
+    AZ_VNET --> AZ_WSUB --> AZ_NSG --> AZ_VM
+    AZ_VPN --- AZ_PIP
+    AZ_VPN --- AZ_LNG
+    AZ_VPN --- AZ_CONN
+  end
+
+  subgraph AWS["AWS · us-east-1 · IAM user terraform-deployer"]
+    direction TB
+    AWS_VPC["VPC 10.20.0.0/16"]
+    AWS_WSUB["workload subnet 10.20.1.0/24"]
+    AWS_IGW["IGW (SSM egress)"]
+    AWS_VGW["VGW · ASN 65020"]
+    AWS_CGW["Customer Gateway → Azure PIP"]
+    AWS_VPNC["VPN Connection (BGP, 2 tunnels)"]
+    AWS_RT["Route Table · BGP propagate"]
+    AWS_SG["SG · ICMP from 10.10.0.0/16"]
+    AWS_EC2["EC2 · t3.micro AL2023 · 10.20.1.88"]
+    AWS_VPC --> AWS_WSUB --> AWS_SG --> AWS_EC2
+    AWS_VPC --- AWS_IGW
+    AWS_VPC --- AWS_VGW
+    AWS_VGW --- AWS_CGW --- AWS_VPNC
+    AWS_VPC --- AWS_RT
+  end
+
+  Net((( Public Internet )))
+  AZ_PIP <-->|IPSec / IKEv2 · tunnel 1| Net
+  Net <-->|tunnel 1 · 169.254.21.0/30| AWS_VPNC
+  AZ_VPN <-. eBGP 65010 ↔ 65020 .-> AWS_VGW
+  AZ_VM <-. ICMP RTT validation .-> AWS_EC2
+
+  classDef az fill:#103a64,stroke:#2196f3,color:#e6ecff;
+  classDef aw fill:#5a3a0e,stroke:#ff9900,color:#e6ecff;
+  classDef net fill:#1a2342,stroke:#94a0c8,color:#e6ecff;
+  class AZ_VNET,AZ_GWS,AZ_WSUB,AZ_PIP,AZ_VPN,AZ_LNG,AZ_CONN,AZ_NSG,AZ_VM az;
+  class AWS_VPC,AWS_WSUB,AWS_IGW,AWS_VGW,AWS_CGW,AWS_VPNC,AWS_RT,AWS_SG,AWS_EC2 aw;
+  class Net net;
 ```
-                Public Internet  (IPSec/IKEv2 + BGP inside the tunnel)
-                        ▲                   ▲
-                        │ tunnel 1          │ tunnel 1
-   ┌────────────────────┴─┐               ┌─┴─────────────────────┐
-   │ Azure (eastus2)      │               │ AWS (us-east-1)       │
-   │ VNet 10.10.0.0/16    │               │ VPC 10.20.0.0/16      │
-   │  ├─ Public IP (zoned)│               │  ├─ IGW (workload SSM)│
-   │  ├─ VPN GW VpnGw1AZ  │  BGP 65010↔65020  ├─ VGW (ASN 65020)  │
-   │  │   ASN 65010       │  via 169.254.21.0/30  ├─ Customer GW   │
-   │  ├─ LNG → AWS T1     │               │  ├─ VPN Connection    │
-   │  ├─ Connection (PSK) │               │  ├─ RT (BGP propagate) │
-   │  ├─ NSG (ICMP from   │               │  ├─ SG (ICMP from     │
-   │  │   10.20.0.0/16)   │               │  │   10.10.0.0/16)    │
-   │  └─ VM D2als_v7      │ ◄ ICMP ─►     │  └─ EC2 t3.micro      │
-   │     10.10.1.4        │               │     10.20.1.88        │
-   └──────────────────────┘               └───────────────────────┘
+
+### 02 · Repo layout & two-roots model
+
+Each cloud is its own Terraform root with local state. The two share no backend — the seam between them is a manual outputs-as-inputs paste, formalized as the three-phase apply (§9). This is what lets two parallel Claude sessions (one per worktree) work the lab without colliding on plan/apply.
+
+```mermaid
+flowchart TB
+  ROOT[("cross-cloud-labs/")]
+  CLAUDE[".claude/<br/>CLAUDE.md · agents/ · hooks/ · settings.json"]
+  GH[".github/<br/>FUNDING · PR template"]
+  HOOKS[".githooks/pre-push<br/>(activated by scripts/install-git-hooks.sh)"]
+  AWS_TF["aws/labs/vpn-site-to-site/<br/>main.tf · variables.tf · outputs.tf · destroy.sh"]
+  AZ_TF["azure/labs/vpn-site-to-site/<br/>main.tf · variables.tf · outputs.tf · destroy.sh"]
+  DOCS["docs/<br/>wiki/ · reference-architectures/ · study-guides/ · index.html"]
+  REFARCH["docs/reference-architectures/<br/>aws/ · azure/ · cross-cloud/ · claude/"]
+  TEAR["teardown-all.sh<br/>(walks labs/, runs each destroy.sh)"]
+  ENV[".env.example<br/>(real .env is gitignored)"]
+
+  ROOT --> CLAUDE
+  ROOT --> GH
+  ROOT --> HOOKS
+  ROOT --> AWS_TF
+  ROOT --> AZ_TF
+  ROOT --> DOCS
+  ROOT --> TEAR
+  ROOT --> ENV
+  DOCS --> REFARCH
+
+  AWS_TF -. "outputs (PSK, tunnel IP, VGW ASN)" .-> AZ_TF
+  AZ_TF -. "outputs (Azure GW PIP)" .-> AWS_TF
+
+  classDef code fill:#10243a,stroke:#3b82f6,color:#e6ecff;
+  classDef cl fill:#2a1d3f,stroke:#c084fc,color:#e6ecff;
+  classDef ops fill:#1a3024,stroke:#34d399,color:#e6ecff;
+  class AWS_TF,AZ_TF code;
+  class CLAUDE,REFARCH cl;
+  class HOOKS,TEAR ops;
+```
+
+### 03 · Claude Code operating layer
+
+Every Claude turn against this repo loads `CLAUDE.md` (the 6 hard rules + audience calibration), routes through `settings.json` (allow / ask / deny tiers), passes through the `PreToolUse` hook (live branch check), and can dispatch to one of five specialized subagents that run in their own context with their own tool subset.
+
+```mermaid
+flowchart LR
+  USER([Operator prompt])
+  CLAUDE["Claude Code session"]
+  CMD["CLAUDE.md<br/>6 hard rules · tagging · Azure↔AWS analogues · roadmap"]
+  SET["settings.json<br/>allow · ask · deny · env (TF_IN_AUTOMATION=1)"]
+  HOOK["hooks/block-main-write.sh<br/>PreToolUse · matcher: Bash<br/>blocks git commit/push when on main/master"]
+  AGENTS{{"agents/"}}
+  A1["aws-expert"]
+  A2["azure-expert"]
+  A3["code-reviewer"]
+  A4["security-reviewer"]
+  A5["terraform-reviewer"]
+  TOOL["Bash / Edit / Read / Write"]
+  CLOUD[(Cloud APIs · git · gh)]
+
+  USER --> CLAUDE
+  CLAUDE -. always loaded .- CMD
+  CLAUDE --> SET
+  SET --> HOOK
+  HOOK -- exit 0 --> TOOL
+  HOOK -- exit 2: blocked --> CLAUDE
+  TOOL --> CLOUD
+  CLAUDE -. dispatch .-> AGENTS
+  AGENTS --> A1 & A2 & A3 & A4 & A5
+
+  classDef cl fill:#2a1d3f,stroke:#c084fc,color:#e6ecff;
+  classDef gate fill:#3a2010,stroke:#fbbf24,color:#e6ecff;
+  classDef ext fill:#1a2342,stroke:#94a0c8,color:#e6ecff;
+  class CMD,SET,AGENTS,A1,A2,A3,A4,A5 cl;
+  class HOOK gate;
+  class CLOUD ext;
+```
+
+### 04 · Branch & secret guardrails — defense in depth
+
+Three independent layers enforce *"never push to main"* and *"never read .env"*. Any one of them is enough; together they catch human mistakes, agent mistakes, and tool-routed mistakes. Bypass is a deliberate `--no-verify`, not an accident.
+
+```mermaid
+flowchart LR
+  ATTEMPT[/"Attempted action<br/>(git push · git commit · Read .env)"/]
+
+  subgraph L1["Layer 1 · settings.json deny patterns"]
+    D1["deny: git push origin main*"]
+    D2["deny: git push --force origin main*"]
+    D3["deny: Read(./.env), Read(./**/.env)"]
+  end
+
+  subgraph L2["Layer 2 · PreToolUse hook (live state)"]
+    H1["block-main-write.sh<br/>reads git branch --show-current<br/>blocks commit/push when on main/master"]
+  end
+
+  subgraph L3["Layer 3 · git pre-push (server-bound)"]
+    G1[".githooks/pre-push<br/>rejects push to refs/heads/main or master<br/>incl. deletions"]
+  end
+
+  RESULT_OK([allowed])
+  RESULT_BLOCK([blocked + actionable error])
+
+  ATTEMPT --> L1 --> L2 --> L3
+  L1 -- denied --> RESULT_BLOCK
+  L2 -- exit 2 --> RESULT_BLOCK
+  L3 -- non-zero --> RESULT_BLOCK
+  L3 -- pass --> RESULT_OK
+
+  classDef gate fill:#3a2010,stroke:#fbbf24,color:#e6ecff;
+  classDef ok fill:#163328,stroke:#34d399,color:#e6ecff;
+  classDef bad fill:#3a1717,stroke:#ef4444,color:#e6ecff;
+  class L1,L2,L3,D1,D2,D3,H1,G1 gate;
+  class RESULT_OK ok;
+  class RESULT_BLOCK bad;
+```
+
+### 05 · Daily workflow loop
+
+Every change to a cloud resource follows this loop. The shape comes from claude-dev-toolkit (issue → worktree → plan → confidence-gate → review → PR), adapted to Terraform-driven labs (apply replaces deploy, ref-arch refresh replaces docs, daily teardown replaces "leave it running").
+
+```mermaid
+flowchart LR
+  S0([Day start])
+  S1["Branch · feature/<br/>(git worktree per session)"]
+  S2["Plan in chat<br/>state intent · cost · teardown"]
+  S3{"Confidence<br/>≥ 8/10?"}
+  S4["Edit Terraform<br/>+ ref-arch doc same PR"]
+  S5["terraform plan<br/>(allow tier)"]
+  S6["terraform apply<br/>(ask tier)"]
+  S7["Review · code + security + terraform agents"]
+  S8["PR → main<br/>(hooks gate the push)"]
+  S9["Merge"]
+  T1["./teardown-all.sh<br/>(end of day)"]
+  S0 --> S1 --> S2 --> S3
+  S3 -- no --> S2
+  S3 -- yes --> S4 --> S5 --> S6 --> S7 --> S8 --> S9 --> T1 --> S0
+
+  classDef act fill:#10243a,stroke:#3b82f6,color:#e6ecff;
+  classDef gate fill:#3a2010,stroke:#fbbf24,color:#e6ecff;
+  classDef tear fill:#163328,stroke:#34d399,color:#e6ecff;
+  class S1,S2,S4,S5,S6,S7,S8,S9 act;
+  class S3 gate;
+  class T1 tear;
+```
+
+### 06 · Three-phase apply (cross-cloud)
+
+No shared backend → no `terraform_remote_state` → outputs cross the seam by hand. Phase 1 stands up the Azure-side endpoint so AWS knows where to dial. Phase 2 stands up AWS and emits the PSK + tunnel IP. Phase 3 binds the Azure side to the AWS endpoint and brings BGP up.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Op as Operator
+  participant AzS as Azure session<br/>(worktree A)
+  participant AwS as AWS session<br/>(worktree B)
+  participant AzC as Azure cloud
+  participant AwC as AWS cloud
+
+  Op->>AzS: phase 1 — apply (create_connection=false)
+  AzS->>AzC: VNet, GatewaySubnet, PIP, VPN GW
+  AzC-->>AzS: output azure_gw_public_ip
+
+  Op->>AwS: phase 2 — paste azure_gw_public_ip into tfvars
+  Op->>AwS: terraform apply
+  AwS->>AwC: VPC, IGW, VGW, Customer GW (= Azure PIP), VPN Connection
+  AwC-->>AwS: outputs aws_tunnel1_address, aws_tunnel1_psk, aws_vgw_asn
+
+  Op->>AzS: phase 3 — paste AWS outputs, flip create_connection=true
+  Op->>AzS: terraform apply
+  AzS->>AzC: Local Network Gateway + Connection (PSK)
+  AzC-->>Op: tunnel UP, BGP peer established
+  AwC-->>Op: tunnel 1 up, 1 BGP route accepted
+  Op->>Op: ICMP test 10.10.1.4 ↔ 10.20.1.88
+```
+
+### 07 · Teardown path
+
+Hard rule: every resource is destroyable on demand. Each lab ships a `destroy.sh` wrapper; `teardown-all.sh` at the repo root walks `labs/` and runs them in sequence. Running the teardown daily keeps the $100 AWS promo credit lasting ~6 months and Azure spend in cents/day.
+
+```mermaid
+flowchart LR
+  ENV[".env loaded into shell"]
+  ROOT["./teardown-all.sh"]
+  W{"per-lab dir<br/>has main.tf?"}
+  S{"has *.tfstate or<br/>.terraform/?"}
+  D["terraform destroy -auto-approve"]
+  SKIP["skip"]
+  DONE([all labs destroyed])
+
+  ENV --> ROOT --> W
+  W -- no --> SKIP --> DONE
+  W -- yes --> S
+  S -- no --> SKIP
+  S -- yes --> D --> DONE
+
+  classDef tear fill:#163328,stroke:#34d399,color:#e6ecff;
+  class ROOT,D,DONE tear;
+```
+
+### 08 · Toolkit → repo mapping
+
+Every concept above traces back to a piece of [`claude-dev-toolkit`](https://github.com/zanebarker-ops/claude-dev-toolkit). The wiki page *"Deployed with claude-dev-toolkit"* walks each row in detail.
+
+```mermaid
+flowchart LR
+  subgraph T["claude-dev-toolkit"]
+    T1["templates/CLAUDE.md.template"]
+    T2["config/settings.json.template<br/>(allow / ask / deny tiers)"]
+    T3["hooks/* (PreToolUse pattern)"]
+    T4["hookify-rules/<br/>block-direct-main-dev<br/>block-env-modification<br/>block-hook-bypass"]
+    T5["templates/agents.md<br/>(specialized subagent pattern)"]
+    T6["plugins/pr-review-toolkit<br/>(multi-agent review)"]
+    T7["templates/worktree-workflow.md<br/>(8/10 confidence gate)"]
+    T8["scripts/claude-session.sh<br/>(crash-proof tmux)"]
+  end
+
+  subgraph R["cross-cloud-labs"]
+    R1[".claude/CLAUDE.md<br/>6 hard rules + analogues"]
+    R2[".claude/settings.json<br/>terraform/aws/az/git tiers"]
+    R3[".claude/hooks/block-main-write.sh"]
+    R4[".githooks/pre-push<br/>+ settings.json deny patterns"]
+    R5[".claude/agents/<br/>aws- · azure- · code- · security- · terraform-reviewer"]
+    R6["routine 6 — pre-merge multi-agent review"]
+    R7["two-worktree split<br/>aws/* vs azure/* path ownership"]
+    R8["per-session tmux<br/>(when applicable)"]
+  end
+
+  T1 --> R1
+  T2 --> R2
+  T3 --> R3
+  T4 --> R4
+  T5 --> R5
+  T6 --> R6
+  T7 --> R7
+  T8 --> R8
+
+  classDef cl fill:#2a1d3f,stroke:#c084fc,color:#e6ecff;
+  classDef code fill:#10243a,stroke:#3b82f6,color:#e6ecff;
+  class T1,T2,T3,T4,T5,T6,T7,T8 cl;
+  class R1,R2,R3,R4,R5,R6,R7,R8 code;
 ```
 
 ---
-
 ## 🛠 How this was built
 
 Everything below this line is the walkthrough of how the repo was built and operated using [`claude-dev-toolkit`](https://github.com/zanebarker-ops/claude-dev-toolkit). For other teams adopting the same workflow on their own infra repos, this is the section to read.
