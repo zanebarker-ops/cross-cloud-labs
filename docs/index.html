@@ -4,68 +4,444 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>cross-cloud-labs · system architecture</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #0b1020;
-      --panel: #131a32;
-      --ink: #e6ecff;
-      --muted: #94a0c8;
-      --line: #2b3458;
+      --bg-0: #06070d;
+      --bg-1: #0a0e1a;
+      --bg-2: #0f1626;
+      --bg-3: #1a2236;
+      --text: #e6edf3;
+      --muted: #7d8590;
+      --dim: #4b5366;
+      --line: rgba(125, 133, 144, 0.14);
+      --line-strong: rgba(125, 133, 144, 0.28);
+      --cyan: #22d3ee;
+      --cyan-bright: #67e8f9;
+      --cyan-glow: rgba(34, 211, 238, 0.35);
+      --magenta: #ec4899;
+      --magenta-glow: rgba(236, 72, 153, 0.35);
+      --lime: #a3e635;
+      --lime-glow: rgba(163, 230, 53, 0.30);
+      --amber: #f59e0b;
+      --danger: #ef4444;
       --azure: #2196f3;
       --aws: #ff9900;
       --claude: #c084fc;
-      --good: #34d399;
-      --warn: #fbbf24;
+      --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+      --font-body: 'Inter', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
     }
+
     * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-    header { padding: 28px 32px 8px; }
-    header h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
-    header p { margin: 0; color: var(--muted); max-width: 920px; }
-    main { padding: 0 24px 64px; max-width: 1500px; margin: 0 auto; }
-    nav.toc { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 32px 18px; }
-    nav.toc a { padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); text-decoration: none; font-size: 13px; }
-    nav.toc a:hover { color: var(--ink); border-color: var(--ink); }
-    section { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px 24px; margin: 18px 0; }
-    section h2 { margin: 0 0 6px; font-size: 17px; letter-spacing: 0.01em; }
-    section h2 .badge { display: inline-block; margin-left: 10px; padding: 2px 8px; font-size: 11px; font-weight: 600; border-radius: 6px; background: var(--line); color: var(--muted); vertical-align: middle; }
-    section .lede { color: var(--muted); margin: 0 0 14px; max-width: 940px; }
-    .mermaid { background: #0f1530; border-radius: 10px; padding: 18px; overflow: auto; }
-    .legend { display: flex; flex-wrap: wrap; gap: 18px; padding: 6px 0 0; color: var(--muted); font-size: 13px; }
-    .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+    html, body { margin: 0; padding: 0; background: var(--bg-0); color: var(--text); font: 15px/1.6 var(--font-body); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+    a { color: var(--cyan-bright); }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(900px 700px at 88% 8%, rgba(34, 211, 238, 0.09), transparent 60%),
+        radial-gradient(800px 600px at 8% 95%, rgba(236, 72, 153, 0.07), transparent 60%),
+        radial-gradient(600px 500px at 50% 50%, rgba(163, 230, 53, 0.04), transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    body > * { position: relative; z-index: 1; }
+
+    header.hero {
+      padding: 56px 48px 24px;
+      max-width: 1500px;
+      margin: 0 auto;
+      position: relative;
+    }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--cyan-bright);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-bottom: 1.4rem;
+    }
+    .eyebrow::before { content: ''; width: 32px; height: 1px; background: var(--cyan); }
+    header.hero h1 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 3.6rem;
+      line-height: 1.02;
+      letter-spacing: -0.03em;
+      margin: 0 0 1.2rem;
+      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 55%, var(--cyan-bright) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    header.hero h1 .accent {
+      background: linear-gradient(135deg, var(--magenta) 0%, var(--cyan-bright) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+    header.hero p.lede {
+      margin: 0 0 1.6rem;
+      color: var(--muted);
+      max-width: 920px;
+      font-size: 1.1rem;
+      line-height: 1.55;
+    }
+    header.hero p.lede strong { color: var(--text); font-weight: 600; }
+    header.hero p.lede a { color: var(--claude); text-decoration: none; border-bottom: 1px dashed var(--claude); }
+
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      margin-bottom: 2rem;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.32rem 0.7rem;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      border: 1px solid currentColor;
+      background: rgba(15, 22, 38, 0.4);
+    }
+    .badge.ok { color: var(--lime); }
+    .badge.warn { color: var(--amber); }
+    .badge.bad { color: var(--danger); }
+    .badge.info { color: var(--cyan); }
+    .badge.azure { color: var(--azure); }
+    .badge.aws { color: var(--aws); }
+    .badge::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      background: currentColor;
+      border-radius: 50%;
+      box-shadow: 0 0 8px currentColor;
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+    .meta-strip {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      padding-top: 1.4rem;
+      border-top: 1px solid var(--line-strong);
+      gap: 2rem;
+      flex-wrap: wrap;
+    }
+    .meta-strip .col .kicker {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: var(--muted);
+      margin-bottom: 0.4rem;
+    }
+    .meta-strip .col .val {
+      font-family: var(--font-mono);
+      color: var(--cyan-bright);
+      font-size: 0.95rem;
+    }
+    .meta-strip .col .val a { color: inherit; text-decoration: none; border-bottom: 1px solid rgba(103, 232, 249, 0.3); }
+
+    nav.toc {
+      max-width: 1500px;
+      margin: 0 auto;
+      padding: 8px 48px 28px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    nav.toc a {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 0.85rem;
+      border: 1px solid var(--line-strong);
+      border-radius: 4px;
+      color: var(--muted);
+      text-decoration: none;
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      background: rgba(15, 22, 38, 0.4);
+      transition: all 0.15s ease;
+    }
+    nav.toc a:hover {
+      color: var(--cyan-bright);
+      border-color: var(--cyan);
+      background: rgba(34, 211, 238, 0.06);
+    }
+    nav.toc a::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      background: var(--cyan);
+      border-radius: 50%;
+      box-shadow: 0 0 6px var(--cyan-glow);
+    }
+
+    main {
+      max-width: 1500px;
+      margin: 0 auto;
+      padding: 0 48px 64px;
+    }
+
+    section.hud {
+      background: linear-gradient(180deg, rgba(15, 22, 38, 0.7) 0%, rgba(10, 14, 26, 0.6) 100%);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid var(--line-strong);
+      border-radius: 14px;
+      padding: 28px 32px 24px;
+      margin: 22px 0;
+      position: relative;
+    }
+    section.hud::before, section.hud::after {
+      content: '';
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      border: 1px solid var(--cyan);
+      pointer-events: none;
+    }
+    section.hud::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+    section.hud::after { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+    section.hud[data-accent="magenta"]::before, section.hud[data-accent="magenta"]::after { border-color: var(--magenta); }
+    section.hud[data-accent="lime"]::before, section.hud[data-accent="lime"]::after { border-color: var(--lime); }
+    section.hud[data-accent="amber"]::before, section.hud[data-accent="amber"]::after { border-color: var(--amber); }
+
+    section.hud .section-head {
+      display: flex;
+      align-items: baseline;
+      gap: 1rem;
+      margin: 0 0 0.4rem;
+      flex-wrap: wrap;
+    }
+    section.hud .num {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 2.6rem;
+      line-height: 0.9;
+      letter-spacing: -0.04em;
+      color: var(--cyan);
+      -webkit-text-stroke: 1px var(--cyan);
+    }
+    section.hud[data-accent="magenta"] .num { color: var(--magenta); -webkit-text-stroke-color: var(--magenta); }
+    section.hud[data-accent="lime"] .num { color: var(--lime); -webkit-text-stroke-color: var(--lime); }
+    section.hud[data-accent="amber"] .num { color: var(--amber); -webkit-text-stroke-color: var(--amber); }
+
+    section.hud h2 {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 1.6rem;
+      letter-spacing: -0.015em;
+      margin: 0;
+      color: var(--text);
+      flex: 1;
+    }
+    section.hud .tag {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: var(--muted);
+      padding: 0.2rem 0.55rem;
+      border: 1px solid var(--line-strong);
+      border-radius: 4px;
+    }
+    section.hud[data-accent="magenta"] .tag { color: var(--magenta); border-color: rgba(236, 72, 153, 0.4); }
+    section.hud[data-accent="lime"] .tag { color: var(--lime); border-color: rgba(163, 230, 53, 0.4); }
+    section.hud[data-accent="amber"] .tag { color: var(--amber); border-color: rgba(245, 158, 11, 0.4); }
+
+    section.hud .lede {
+      color: var(--muted);
+      max-width: 1100px;
+      margin: 0.6rem 0 1.2rem;
+      font-size: 0.98rem;
+      line-height: 1.62;
+    }
+    section.hud .lede em { color: var(--cyan-bright); font-style: normal; }
+    section.hud .lede strong { color: var(--text); font-weight: 600; }
+
+    .mermaid-frame {
+      background: linear-gradient(180deg, rgba(13, 17, 23, 0.7) 0%, rgba(6, 8, 16, 0.7) 100%);
+      border: 1px solid var(--line-strong);
+      border-radius: 10px;
+      padding: 18px;
+      overflow: auto;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+    .mermaid-frame .mermaid svg { max-width: 100%; height: auto; }
+
+    svg[id^="mermaid-"] .nodeLabel,
+    svg[id^="mermaid-"] foreignObject *,
+    svg[id^="mermaid-"] text {
+      font-family: var(--font-mono) !important;
+      fill: var(--text) !important;
+    }
+    svg[id^="mermaid-"] .edgePath path,
+    svg[id^="mermaid-"] .flowchart-link,
+    svg[id^="mermaid-"] line.messageLine0,
+    svg[id^="mermaid-"] line.messageLine1 {
+      stroke: var(--cyan-bright) !important;
+      stroke-width: 1.6px !important;
+    }
+    svg[id^="mermaid-"] marker path,
+    svg[id^="mermaid-"] .arrowMarkerPath,
+    svg[id^="mermaid-"] defs marker path {
+      fill: var(--cyan-bright) !important;
+      stroke: var(--cyan-bright) !important;
+    }
+    svg[id^="mermaid-"] .cluster rect {
+      fill: rgba(15, 22, 38, 0.55) !important;
+      stroke: var(--line-strong) !important;
+      stroke-width: 1px !important;
+      rx: 8 !important;
+    }
+    svg[id^="mermaid-"] .cluster text {
+      font-family: var(--font-mono) !important;
+      fill: var(--cyan-bright) !important;
+      font-weight: 600 !important;
+    }
+    svg[id^="mermaid-"] .actor {
+      fill: rgba(15, 22, 38, 0.85) !important;
+      stroke: var(--cyan) !important;
+    }
+    svg[id^="mermaid-"] text.actor { fill: var(--text) !important; }
+    svg[id^="mermaid-"] .actor-line { stroke: var(--line-strong) !important; }
+    svg[id^="mermaid-"] .messageText { fill: var(--cyan-bright) !important; }
+    svg[id^="mermaid-"] .labelBox {
+      fill: rgba(34, 211, 238, 0.08) !important;
+      stroke: var(--cyan) !important;
+    }
+    svg[id^="mermaid-"] .labelText, svg[id^="mermaid-"] .loopText { fill: var(--text) !important; }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.2rem;
+      padding: 0.9rem 0 0;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 0.5rem; }
+    .legend span::before {
+      content: '';
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+    }
     .legend .azure::before { background: var(--azure); }
     .legend .aws::before { background: var(--aws); }
     .legend .claude::before { background: var(--claude); }
-    .legend .good::before { background: var(--good); }
-    .legend .warn::before { background: var(--warn); }
-    footer { color: var(--muted); padding: 20px 32px 40px; font-size: 13px; }
-    footer a { color: var(--muted); }
-    code { background: #0f1530; padding: 1px 6px; border-radius: 4px; color: #d2def0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+    .legend .good::before { background: var(--lime); }
+    .legend .warn::before { background: var(--amber); }
+
+    :not(pre) > code {
+      background: rgba(34, 211, 238, 0.10);
+      color: var(--cyan-bright);
+      padding: 0.12em 0.42em;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 0.86em;
+      border: 1px solid rgba(34, 211, 238, 0.22);
+    }
+
+    footer.foot {
+      max-width: 1500px;
+      margin: 0 auto;
+      padding: 24px 48px 56px;
+      color: var(--muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    footer.foot .left, footer.foot .right { font-family: var(--font-mono); letter-spacing: 0.04em; }
+    footer.foot a { color: var(--cyan-bright); text-decoration: none; border-bottom: 1px solid rgba(103, 232, 249, 0.25); }
+
+    @media (max-width: 900px) {
+      header.hero { padding: 36px 24px 16px; }
+      header.hero h1 { font-size: 2.4rem; }
+      nav.toc { padding: 8px 24px 20px; }
+      main { padding: 0 24px 48px; }
+      section.hud { padding: 22px 22px 18px; }
+      section.hud .num { font-size: 2rem; }
+      section.hud h2 { font-size: 1.3rem; }
+      footer.foot { padding: 24px; }
+    }
   </style>
 </head>
 <body>
-  <header>
-    <h1>cross-cloud-labs · system architecture</h1>
-    <p>End-to-end view of the lab: Azure↔AWS site-to-site VPN, the Claude Code operating layer that drives every change, and the daily lifecycle from branch → plan → apply → teardown. Built and operated using <a href="https://github.com/zanebarker-ops/claude-dev-toolkit" style="color:#c084fc">claude-dev-toolkit</a>.</p>
+
+  <header class="hero">
+    <div class="eyebrow">// system architecture · v1</div>
+    <h1>cross-cloud-labs<br/><span class="accent">azure ↔ aws operating layer</span></h1>
+    <p class="lede">End-to-end view of the lab: <strong>Azure↔AWS site-to-site VPN</strong>, the Claude Code operating layer that drives every change, and the daily lifecycle from <strong>branch → plan → apply → teardown</strong>. Built and operated using <a href="https://github.com/zanebarker-ops/claude-dev-toolkit">claude-dev-toolkit</a>.</p>
+
+    <div class="badges">
+      <span class="badge azure">azure · eastus2</span>
+      <span class="badge aws">aws · us-east-1</span>
+      <span class="badge ok">tunnel up</span>
+      <span class="badge info">8 sections</span>
+      <span class="badge warn">cost-gated</span>
+    </div>
+
+    <div class="meta-strip">
+      <div class="col">
+        <div class="kicker">repository</div>
+        <div class="val"><a href="https://github.com/zanebarker-ops/cross-cloud-labs">github.com/zanebarker-ops/cross-cloud-labs</a></div>
+      </div>
+      <div class="col" style="text-align:right;">
+        <div class="kicker">operated by</div>
+        <div class="val">claude-dev-toolkit · zane · 2026</div>
+      </div>
+    </div>
   </header>
 
   <nav class="toc">
-    <a href="#topology">1 · Cross-cloud topology</a>
-    <a href="#repo">2 · Repo &amp; two-roots model</a>
-    <a href="#claude">3 · Claude Code operating layer</a>
-    <a href="#guards">4 · Branch &amp; secret guardrails</a>
-    <a href="#workflow">5 · Daily workflow loop</a>
-    <a href="#deploy">6 · Three-phase apply</a>
-    <a href="#teardown">7 · Teardown path</a>
-    <a href="#toolkit">8 · Toolkit → repo mapping</a>
+    <a href="#topology">01 · topology</a>
+    <a href="#repo">02 · repo &amp; two-roots</a>
+    <a href="#claude">03 · claude operating layer</a>
+    <a href="#guards">04 · guardrails</a>
+    <a href="#workflow">05 · daily workflow</a>
+    <a href="#deploy">06 · three-phase apply</a>
+    <a href="#teardown">07 · teardown path</a>
+    <a href="#toolkit">08 · toolkit mapping</a>
   </nav>
 
   <main>
 
-    <section id="topology">
-      <h2>1 · Cross-cloud topology <span class="badge">runtime</span></h2>
-      <p class="lede">IPSec/IKEv2 tunnel between Azure VPN Gateway (eastus2) and AWS VGW (us-east-1) with BGP inside the tunnel. Single tunnel attached today; AWS hands out two by default and the second is staged but not wired. Inside CIDR <code>169.254.21.0/30</code> is locked because Azure's <code>local_network_gateway</code> needs the AWS-side BGP peer IP at apply time.</p>
-      <div class="mermaid">
+    <section class="hud" id="topology" data-accent="cyan">
+      <div class="section-head">
+        <div class="num">01</div>
+        <h2>Cross-cloud topology</h2>
+        <span class="tag">runtime</span>
+      </div>
+      <p class="lede">IPSec/IKEv2 tunnel between <strong>Azure VPN Gateway</strong> (eastus2) and <strong>AWS VGW</strong> (us-east-1) with BGP inside the tunnel. Single tunnel attached today; AWS hands out two by default and the second is staged but not wired. Inside CIDR <code>169.254.21.0/30</code> is locked because Azure's <code>local_network_gateway</code> needs the AWS-side BGP peer IP at apply time.</p>
+      <div class="mermaid-frame">
+        <div class="mermaid">
 flowchart LR
   subgraph AZ["Azure · eastus2 · subscription / SP cross-cloud-labs-tf"]
     direction TB
@@ -115,6 +491,7 @@ flowchart LR
   class AZ_VNET,AZ_GWS,AZ_WSUB,AZ_PIP,AZ_VPN,AZ_LNG,AZ_CONN,AZ_NSG,AZ_VM az;
   class AWS_VPC,AWS_WSUB,AWS_IGW,AWS_VGW,AWS_CGW,AWS_VPNC,AWS_RT,AWS_SG,AWS_EC2 aw;
   class Net net;
+        </div>
       </div>
       <div class="legend">
         <span class="azure">Azure resources</span>
@@ -122,10 +499,15 @@ flowchart LR
       </div>
     </section>
 
-    <section id="repo">
-      <h2>2 · Repo layout &amp; two-roots model <span class="badge">code</span></h2>
+    <section class="hud" id="repo" data-accent="cyan">
+      <div class="section-head">
+        <div class="num">02</div>
+        <h2>Repo layout &amp; two-roots model</h2>
+        <span class="tag">code</span>
+      </div>
       <p class="lede">Each cloud is its own Terraform root with local state. The two share no backend — the seam between them is a manual outputs-as-inputs paste, formalized as the three-phase apply (§6). This is what lets two parallel Claude sessions (one per worktree) work the lab without colliding on plan/apply.</p>
-      <div class="mermaid">
+      <div class="mermaid-frame">
+        <div class="mermaid">
 flowchart TB
   ROOT[("cross-cloud-labs/")]
   CLAUDE[".claude/<br/>CLAUDE.md · agents/ · hooks/ · settings.json"]
@@ -157,13 +539,19 @@ flowchart TB
   class AWS_TF,AZ_TF code;
   class CLAUDE,REFARCH cl;
   class HOOKS,TEAR ops;
+        </div>
       </div>
     </section>
 
-    <section id="claude">
-      <h2>3 · Claude Code operating layer <span class="badge">.claude/</span></h2>
+    <section class="hud" id="claude" data-accent="magenta">
+      <div class="section-head">
+        <div class="num">03</div>
+        <h2>Claude Code operating layer</h2>
+        <span class="tag">.claude/</span>
+      </div>
       <p class="lede">Every Claude turn against this repo loads <code>CLAUDE.md</code> (the 6 hard rules + audience calibration), routes through <code>settings.json</code> (allow / ask / deny tiers), passes through the <code>PreToolUse</code> hook (live branch check), and can dispatch to one of five specialized subagents that run in their own context with their own tool subset.</p>
-      <div class="mermaid">
+      <div class="mermaid-frame">
+        <div class="mermaid">
 flowchart LR
   USER([Operator prompt])
   CLAUDE["Claude Code session"]
@@ -195,6 +583,7 @@ flowchart LR
   class CMD,SET,AGENTS,A1,A2,A3,A4,A5 cl;
   class HOOK gate;
   class CLOUD ext;
+        </div>
       </div>
       <div class="legend">
         <span class="claude">Claude config</span>
@@ -202,10 +591,15 @@ flowchart LR
       </div>
     </section>
 
-    <section id="guards">
-      <h2>4 · Branch &amp; secret guardrails (defense in depth) <span class="badge">policy</span></h2>
+    <section class="hud" id="guards" data-accent="amber">
+      <div class="section-head">
+        <div class="num">04</div>
+        <h2>Branch &amp; secret guardrails — defense in depth</h2>
+        <span class="tag">policy</span>
+      </div>
       <p class="lede">Three independent layers enforce <em>"never push to main"</em> and <em>"never read .env"</em>. Any one of them is enough; together they catch human mistakes, agent mistakes, and tool-routed mistakes. Bypass is a deliberate <code>--no-verify</code>, not an accident.</p>
-      <div class="mermaid">
+      <div class="mermaid-frame">
+        <div class="mermaid">
 flowchart LR
   ATTEMPT[/"Attempted action<br/>(git push · git commit · Read .env)"/]
 
@@ -238,13 +632,19 @@ flowchart LR
   class L1,L2,L3,D1,D2,D3,H1,G1 gate;
   class RESULT_OK ok;
   class RESULT_BLOCK bad;
+        </div>
       </div>
     </section>
 
-    <section id="workflow">
-      <h2>5 · Daily workflow loop <span class="badge">process</span></h2>
+    <section class="hud" id="workflow" data-accent="cyan">
+      <div class="section-head">
+        <div class="num">05</div>
+        <h2>Daily workflow loop</h2>
+        <span class="tag">process</span>
+      </div>
       <p class="lede">Every change to a cloud resource follows this loop. The shape comes from claude-dev-toolkit (issue → worktree → plan → confidence-gate → review → PR), adapted to Terraform-driven labs (apply replaces deploy, ref-arch refresh replaces docs, daily teardown replaces "leave it running").</p>
-      <div class="mermaid">
+      <div class="mermaid-frame">
+        <div class="mermaid">
 flowchart LR
   S0([Day start])
   S1["Branch · feature/<br/>(git worktree per session)"]
@@ -267,13 +667,19 @@ flowchart LR
   class S1,S2,S4,S5,S6,S7,S8,S9 act;
   class S3 gate;
   class T1 tear;
+        </div>
       </div>
     </section>
 
-    <section id="deploy">
-      <h2>6 · Three-phase apply (cross-cloud) <span class="badge">runbook</span></h2>
+    <section class="hud" id="deploy" data-accent="magenta">
+      <div class="section-head">
+        <div class="num">06</div>
+        <h2>Three-phase apply (cross-cloud)</h2>
+        <span class="tag">runbook</span>
+      </div>
       <p class="lede">No shared backend → no <code>terraform_remote_state</code> → outputs cross the seam by hand. Phase 1 stands up the Azure-side endpoint so AWS knows where to dial. Phase 2 stands up AWS and emits the PSK + tunnel IP. Phase 3 binds the Azure side to the AWS endpoint and brings BGP up.</p>
-      <div class="mermaid">
+      <div class="mermaid-frame">
+        <div class="mermaid">
 sequenceDiagram
   autonumber
   participant Op as Operator
@@ -297,13 +703,19 @@ sequenceDiagram
   AzC-->>Op: tunnel UP, BGP peer established
   AwC-->>Op: tunnel 1 up, 1 BGP route accepted
   Op->>Op: ICMP test 10.10.1.4 ↔ 10.20.1.88
+        </div>
       </div>
     </section>
 
-    <section id="teardown">
-      <h2>7 · Teardown path <span class="badge">cost</span></h2>
+    <section class="hud" id="teardown" data-accent="lime">
+      <div class="section-head">
+        <div class="num">07</div>
+        <h2>Teardown path</h2>
+        <span class="tag">cost</span>
+      </div>
       <p class="lede">Hard rule: every resource is destroyable on demand. Each lab ships a <code>destroy.sh</code> wrapper; <code>teardown-all.sh</code> at the repo root walks <code>labs/</code> and runs them in sequence. Running the teardown daily keeps the $100 AWS promo credit lasting ~6 months and Azure spend in cents/day.</p>
-      <div class="mermaid">
+      <div class="mermaid-frame">
+        <div class="mermaid">
 flowchart LR
   ENV[".env loaded into shell"]
   ROOT["./teardown-all.sh"]
@@ -321,13 +733,19 @@ flowchart LR
 
   classDef tear fill:#163328,stroke:#34d399,color:#e6ecff;
   class ROOT,D,DONE tear;
+        </div>
       </div>
     </section>
 
-    <section id="toolkit">
-      <h2>8 · Toolkit → repo mapping <span class="badge">provenance</span></h2>
-      <p class="lede">Every concept on this page traces back to a piece of <a href="https://github.com/zanebarker-ops/claude-dev-toolkit" style="color:#c084fc">claude-dev-toolkit</a>. The wiki page <em>"Deployed with claude-dev-toolkit"</em> walks each row in detail.</p>
-      <div class="mermaid">
+    <section class="hud" id="toolkit" data-accent="magenta">
+      <div class="section-head">
+        <div class="num">08</div>
+        <h2>Toolkit → repo mapping</h2>
+        <span class="tag">provenance</span>
+      </div>
+      <p class="lede">Every concept on this page traces back to a piece of <a href="https://github.com/zanebarker-ops/claude-dev-toolkit">claude-dev-toolkit</a>. The wiki page <em>"Deployed with claude-dev-toolkit"</em> walks each row in detail.</p>
+      <div class="mermaid-frame">
+        <div class="mermaid">
 flowchart LR
   subgraph T["claude-dev-toolkit"]
     T1["templates/CLAUDE.md.template"]
@@ -364,13 +782,15 @@ flowchart LR
   classDef code fill:#10243a,stroke:#3b82f6,color:#e6ecff;
   class T1,T2,T3,T4,T5,T6,T7,T8 cl;
   class R1,R2,R3,R4,R5,R6,R7,R8 code;
+        </div>
       </div>
     </section>
 
   </main>
 
-  <footer>
-    Authoritative per-resource specs: <code>docs/reference-architectures/</code>. Narrative walkthrough: <code>docs/wiki/</code>. Toolkit: <a href="https://github.com/zanebarker-ops/claude-dev-toolkit">github.com/zanebarker-ops/claude-dev-toolkit</a>.
+  <footer class="foot">
+    <div class="left">authoritative specs · <code>docs/reference-architectures/</code> · narrative · <code>docs/wiki/</code></div>
+    <div class="right">toolkit · <a href="https://github.com/zanebarker-ops/claude-dev-toolkit">github.com/zanebarker-ops/claude-dev-toolkit</a></div>
   </footer>
 
   <script type="module">
@@ -380,16 +800,34 @@ flowchart LR
       theme: "dark",
       securityLevel: "strict",
       flowchart: { curve: "basis", htmlLabels: true, useMaxWidth: true },
-      sequence: { useMaxWidth: true },
+      sequence: { useMaxWidth: true, actorMargin: 60, messageFontSize: 13, actorFontSize: 13 },
       themeVariables: {
-        background: "#0f1530",
-        primaryColor: "#1f2a4a",
-        primaryTextColor: "#e6ecff",
-        primaryBorderColor: "#3b82f6",
-        lineColor: "#94a0c8",
-        secondaryColor: "#3b82f6",
-        tertiaryColor: "#1a2342",
-        fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial"
+        background: "#06070d",
+        primaryColor: "#0f1626",
+        primaryTextColor: "#e6edf3",
+        primaryBorderColor: "#22d3ee",
+        secondaryColor: "#1a2236",
+        tertiaryColor: "#0a0e1a",
+        lineColor: "#67e8f9",
+        textColor: "#e6edf3",
+        mainBkg: "#0f1626",
+        nodeBorder: "#22d3ee",
+        clusterBkg: "rgba(15, 22, 38, 0.55)",
+        clusterBorder: "rgba(125, 133, 144, 0.28)",
+        labelTextColor: "#67e8f9",
+        edgeLabelBackground: "#0a0e1a",
+        actorBkg: "#0f1626",
+        actorBorder: "#22d3ee",
+        actorTextColor: "#e6edf3",
+        actorLineColor: "rgba(125, 133, 144, 0.4)",
+        signalColor: "#67e8f9",
+        signalTextColor: "#e6edf3",
+        labelBoxBkgColor: "rgba(34, 211, 238, 0.08)",
+        labelBoxBorderColor: "#22d3ee",
+        noteBkgColor: "#1a2236",
+        noteBorderColor: "rgba(125, 133, 144, 0.4)",
+        noteTextColor: "#e6edf3",
+        fontFamily: "'JetBrains Mono', 'SF Mono', Menlo, monospace"
       }
     });
   </script>
