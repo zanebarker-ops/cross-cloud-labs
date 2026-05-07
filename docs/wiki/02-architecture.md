@@ -26,7 +26,6 @@ cross-cloud-labs/
 │   │   ├── azure/networking/, azure/iam/
 │   │   ├── cross-cloud/<pattern>/
 │   │   └── claude/                   (when the docs-claude-ref-arch PR lands)
-│   ├── study-guides/                 PDFs/PNGs (cloud product mapping, monitoring cheat sheets)
 │   └── wiki/                         this directory — narrative walkthrough
 ├── scripts/                          (helper scripts; currently minimal)
 ├── teardown-all.sh                   walks every lab and runs its destroy.sh

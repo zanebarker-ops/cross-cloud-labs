@@ -128,7 +128,6 @@ cross-cloud-labs/
 │   │   ├── azure/networking/, azure/iam/
 │   │   ├── cross-cloud/<pattern>/
 │   │   └── claude/                  ref-arch docs for the Claude config system itself
-│   ├── study-guides/                PDFs/PNGs (cloud product mapping, monitoring cheat sheets)
 │   └── wiki/                        narrative walkthrough (7 pages — getting started → cost → claude workflow)
 ├── scripts/install-git-hooks.sh     wires .githooks/ into core.hooksPath
 ├── teardown-all.sh                  walks every lab and runs its destroy
@@ -216,7 +215,7 @@ flowchart TB
   HOOKS[".githooks/pre-push<br/>(activated by scripts/install-git-hooks.sh)"]
   AWS_TF["aws/labs/vpn-site-to-site/<br/>main.tf · variables.tf<br/>outputs.tf · destroy.sh"]
   AZ_TF["azure/labs/vpn-site-to-site/<br/>main.tf · variables.tf<br/>outputs.tf · destroy.sh"]
-  DOCS["docs/<br/>wiki/<br/>reference-architectures/<br/>study-guides/<br/>index.html"]
+  DOCS["docs/<br/>wiki/<br/>reference-architectures/<br/>index.html"]
   REFARCH["docs/reference-architectures/<br/>aws/ · azure/<br/>cross-cloud/ · claude/"]
   TEAR["teardown-all.sh<br/>(walks labs/, runs each destroy.sh)"]
   ENV[".env.example<br/>(real .env is gitignored)"]
@@ -668,5 +667,4 @@ ExpressRoute and Direct Connect are explicitly **out of scope** (cost).
 - **Architecture diagram (Mermaid, 8 panels):** <https://zanebarker-ops.github.io/cross-cloud-labs/>
 - **Narrative walkthrough:** [`docs/wiki/`](docs/wiki/README.md) — getting started, architecture, deploying, tearing down, troubleshooting, cost, Claude workflow
 - **Reference architectures (source of truth):** [`docs/reference-architectures/`](docs/reference-architectures/)
-- **Study guides:** [`docs/study-guides/`](docs/study-guides/) — cloud product mapping, monitoring cheat sheets, cloud databases overview
 - **Toolkit:** <https://github.com/zanebarker-ops/claude-dev-toolkit>
