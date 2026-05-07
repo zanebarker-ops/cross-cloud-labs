@@ -153,8 +153,8 @@ All 8 diagrams are also rendered inline below — GitHub renders ` ```mermaid ` 
 IPSec/IKEv2 tunnel between Azure VPN Gateway (eastus2) and AWS VGW (us-east-1) with BGP inside the tunnel. Single tunnel attached today; AWS hands out two by default and the second is staged but not wired. Inside CIDR `169.254.21.0/30` is locked because Azure's `local_network_gateway` needs the AWS-side BGP peer IP at apply time.
 
 ```mermaid
-flowchart LR
-  subgraph AZ["Azure · eastus2 · subscription / SP cross-cloud-labs-tf"]
+flowchart TB
+  subgraph AZ["Azure · eastus2"]
     direction TB
     AZ_VNET["VNet 10.10.0.0/16"]
     AZ_GWS["GatewaySubnet 10.10.255.0/27"]
@@ -172,7 +172,7 @@ flowchart LR
     AZ_VPN --- AZ_CONN
   end
 
-  subgraph AWS["AWS · us-east-1 · IAM user terraform-deployer"]
+  subgraph AWS["AWS · us-east-1"]
     direction TB
     AWS_VPC["VPC 10.20.0.0/16"]
     AWS_WSUB["workload subnet 10.20.1.0/24"]
@@ -211,13 +211,13 @@ Each cloud is its own Terraform root with local state. The two share no backend 
 ```mermaid
 flowchart TB
   ROOT[("cross-cloud-labs/")]
-  CLAUDE[".claude/<br/>CLAUDE.md · agents/ · hooks/ · settings.json"]
+  CLAUDE[".claude/<br/>CLAUDE.md<br/>agents/<br/>hooks/<br/>settings.json"]
   GH[".github/<br/>FUNDING · PR template"]
   HOOKS[".githooks/pre-push<br/>(activated by scripts/install-git-hooks.sh)"]
-  AWS_TF["aws/labs/vpn-site-to-site/<br/>main.tf · variables.tf · outputs.tf · destroy.sh"]
-  AZ_TF["azure/labs/vpn-site-to-site/<br/>main.tf · variables.tf · outputs.tf · destroy.sh"]
-  DOCS["docs/<br/>wiki/ · reference-architectures/ · study-guides/ · index.html"]
-  REFARCH["docs/reference-architectures/<br/>aws/ · azure/ · cross-cloud/ · claude/"]
+  AWS_TF["aws/labs/vpn-site-to-site/<br/>main.tf · variables.tf<br/>outputs.tf · destroy.sh"]
+  AZ_TF["azure/labs/vpn-site-to-site/<br/>main.tf · variables.tf<br/>outputs.tf · destroy.sh"]
+  DOCS["docs/<br/>wiki/<br/>reference-architectures/<br/>study-guides/<br/>index.html"]
+  REFARCH["docs/reference-architectures/<br/>aws/ · azure/<br/>cross-cloud/ · claude/"]
   TEAR["teardown-all.sh<br/>(walks labs/, runs each destroy.sh)"]
   ENV[".env.example<br/>(real .env is gitignored)"]
 
@@ -247,7 +247,7 @@ flowchart TB
 Every Claude turn against this repo loads `CLAUDE.md` (the 6 hard rules + audience calibration), routes through `settings.json` (allow / ask / deny tiers), passes through the `PreToolUse` hook (live branch check), and can dispatch to one of five specialized subagents that run in their own context with their own tool subset.
 
 ```mermaid
-flowchart LR
+flowchart TB
   USER([Operator prompt])
   CLAUDE["Claude Code session"]
   CMD["CLAUDE.md<br/>6 hard rules · tagging · Azure↔AWS analogues · roadmap"]
@@ -285,7 +285,7 @@ flowchart LR
 Three independent layers enforce *"never push to main"* and *"never read .env"*. Any one of them is enough; together they catch human mistakes, agent mistakes, and tool-routed mistakes. Bypass is a deliberate `--no-verify`, not an accident.
 
 ```mermaid
-flowchart LR
+flowchart TB
   ATTEMPT[/"Attempted action<br/>(git push · git commit · Read .env)"/]
 
   subgraph L1["Layer 1 · settings.json deny patterns"]
@@ -324,7 +324,7 @@ flowchart LR
 Every change to a cloud resource follows this loop. The shape comes from claude-dev-toolkit (issue → worktree → plan → confidence-gate → review → PR), adapted to Terraform-driven labs (apply replaces deploy, ref-arch refresh replaces docs, daily teardown replaces "leave it running").
 
 ```mermaid
-flowchart LR
+flowchart TB
   S0([Day start])
   S1["Branch · feature/<br/>(git worktree per session)"]
   S2["Plan in chat<br/>state intent · cost · teardown"]
@@ -383,7 +383,7 @@ sequenceDiagram
 Hard rule: every resource is destroyable on demand. Each lab ships a `destroy.sh` wrapper; `teardown-all.sh` at the repo root walks `labs/` and runs them in sequence. Running the teardown daily keeps the $100 AWS promo credit lasting ~6 months and Azure spend in cents/day.
 
 ```mermaid
-flowchart LR
+flowchart TB
   ENV[".env loaded into shell"]
   ROOT["./teardown-all.sh"]
   W{"per-lab dir<br/>has main.tf?"}

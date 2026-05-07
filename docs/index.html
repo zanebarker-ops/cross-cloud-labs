@@ -284,26 +284,21 @@
       border: 1px solid var(--line-strong);
       border-radius: 10px;
       padding: 24px;
-      overflow-x: auto;
-      overflow-y: hidden;
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-      scrollbar-width: thin;
-      scrollbar-color: var(--cyan) rgba(15, 22, 38, 0.5);
     }
-    .mermaid-frame::-webkit-scrollbar { height: 8px; }
-    .mermaid-frame::-webkit-scrollbar-track { background: rgba(15, 22, 38, 0.5); }
-    .mermaid-frame::-webkit-scrollbar-thumb { background: var(--cyan); border-radius: 4px; }
-    .mermaid-frame .mermaid svg { display: block; height: auto; }
+    .mermaid-frame { display: flex; justify-content: center; align-items: center; min-height: 200px; }
+    .mermaid-frame .mermaid { width: 100%; display: flex; justify-content: center; }
+    .mermaid-frame .mermaid svg { display: block; height: auto; max-width: 100%; margin: 0 auto; }
 
     svg[id^="mermaid-"] .nodeLabel,
     svg[id^="mermaid-"] foreignObject *,
     svg[id^="mermaid-"] text {
       font-family: var(--font-mono) !important;
-      font-size: 14px !important;
+      font-size: 16px !important;
       font-weight: 500 !important;
       fill: var(--text) !important;
     }
-    svg[id^="mermaid-"] .cluster text { font-size: 13px !important; letter-spacing: 0.06em !important; }
+    svg[id^="mermaid-"] .cluster text { font-size: 15px !important; letter-spacing: 0.06em !important; }
     svg[id^="mermaid-"] .edgeLabel, svg[id^="mermaid-"] .edgeLabel * {
       font-family: var(--font-mono) !important;
       font-size: 12px !important;
@@ -458,8 +453,8 @@
       <p class="lede">IPSec/IKEv2 tunnel between <strong>Azure VPN Gateway</strong> (eastus2) and <strong>AWS VGW</strong> (us-east-1) with BGP inside the tunnel. Single tunnel attached today; AWS hands out two by default and the second is staged but not wired. Inside CIDR <code>169.254.21.0/30</code> is locked because Azure's <code>local_network_gateway</code> needs the AWS-side BGP peer IP at apply time.</p>
       <div class="mermaid-frame">
         <div class="mermaid">
-flowchart LR
-  subgraph AZ["Azure · eastus2 · subscription / SP cross-cloud-labs-tf"]
+flowchart TB
+  subgraph AZ["Azure · eastus2"]
     direction TB
     AZ_VNET["VNet 10.10.0.0/16"]
     AZ_GWS["GatewaySubnet 10.10.255.0/27"]
@@ -477,7 +472,7 @@ flowchart LR
     AZ_VPN --- AZ_CONN
   end
 
-  subgraph AWS["AWS · us-east-1 · IAM user terraform-deployer"]
+  subgraph AWS["AWS · us-east-1"]
     direction TB
     AWS_VPC["VPC 10.20.0.0/16"]
     AWS_WSUB["workload subnet 10.20.1.0/24"]
@@ -526,13 +521,13 @@ flowchart LR
         <div class="mermaid">
 flowchart TB
   ROOT[("cross-cloud-labs/")]
-  CLAUDE[".claude/<br/>CLAUDE.md · agents/ · hooks/ · settings.json"]
+  CLAUDE[".claude/<br/>CLAUDE.md<br/>agents/<br/>hooks/<br/>settings.json"]
   GH[".github/<br/>FUNDING · PR template"]
   HOOKS[".githooks/pre-push<br/>(activated by scripts/install-git-hooks.sh)"]
-  AWS_TF["aws/labs/vpn-site-to-site/<br/>main.tf · variables.tf · outputs.tf · destroy.sh"]
-  AZ_TF["azure/labs/vpn-site-to-site/<br/>main.tf · variables.tf · outputs.tf · destroy.sh"]
-  DOCS["docs/<br/>wiki/ · reference-architectures/ · study-guides/ · index.html"]
-  REFARCH["docs/reference-architectures/<br/>aws/ · azure/ · cross-cloud/ · claude/"]
+  AWS_TF["aws/labs/vpn-site-to-site/<br/>main.tf · variables.tf<br/>outputs.tf · destroy.sh"]
+  AZ_TF["azure/labs/vpn-site-to-site/<br/>main.tf · variables.tf<br/>outputs.tf · destroy.sh"]
+  DOCS["docs/<br/>wiki/<br/>reference-architectures/<br/>study-guides/<br/>index.html"]
+  REFARCH["docs/reference-architectures/<br/>aws/ · azure/<br/>cross-cloud/ · claude/"]
   TEAR["teardown-all.sh<br/>(walks labs/, runs each destroy.sh)"]
   ENV[".env.example<br/>(real .env is gitignored)"]
 
@@ -568,7 +563,7 @@ flowchart TB
       <p class="lede">Every Claude turn against this repo loads <code>CLAUDE.md</code> (the 6 hard rules + audience calibration), routes through <code>settings.json</code> (allow / ask / deny tiers), passes through the <code>PreToolUse</code> hook (live branch check), and can dispatch to one of five specialized subagents that run in their own context with their own tool subset.</p>
       <div class="mermaid-frame">
         <div class="mermaid">
-flowchart LR
+flowchart TB
   USER([Operator prompt])
   CLAUDE["Claude Code session"]
   CMD["CLAUDE.md<br/>6 hard rules · tagging · Azure↔AWS analogues · roadmap"]
@@ -616,7 +611,7 @@ flowchart LR
       <p class="lede">Three independent layers enforce <em>"never push to main"</em> and <em>"never read .env"</em>. Any one of them is enough; together they catch human mistakes, agent mistakes, and tool-routed mistakes. Bypass is a deliberate <code>--no-verify</code>, not an accident.</p>
       <div class="mermaid-frame">
         <div class="mermaid">
-flowchart LR
+flowchart TB
   ATTEMPT[/"Attempted action<br/>(git push · git commit · Read .env)"/]
 
   subgraph L1["Layer 1 · settings.json deny patterns"]
@@ -661,7 +656,7 @@ flowchart LR
       <p class="lede">Every change to a cloud resource follows this loop. The shape comes from claude-dev-toolkit (issue → worktree → plan → confidence-gate → review → PR), adapted to Terraform-driven labs (apply replaces deploy, ref-arch refresh replaces docs, daily teardown replaces "leave it running").</p>
       <div class="mermaid-frame">
         <div class="mermaid">
-flowchart LR
+flowchart TB
   S0([Day start])
   S1["Branch · feature/<br/>(git worktree per session)"]
   S2["Plan in chat<br/>state intent · cost · teardown"]
@@ -732,7 +727,7 @@ sequenceDiagram
       <p class="lede">Hard rule: every resource is destroyable on demand. Each lab ships a <code>destroy.sh</code> wrapper; <code>teardown-all.sh</code> at the repo root walks <code>labs/</code> and runs them in sequence. Running the teardown daily keeps the $100 AWS promo credit lasting ~6 months and Azure spend in cents/day.</p>
       <div class="mermaid-frame">
         <div class="mermaid">
-flowchart LR
+flowchart TB
   ENV[".env loaded into shell"]
   ROOT["./teardown-all.sh"]
   W{"per-lab dir<br/>has main.tf?"}
@@ -815,8 +810,8 @@ flowchart LR
       startOnLoad: true,
       theme: "dark",
       securityLevel: "strict",
-      flowchart: { curve: "basis", htmlLabels: true, useMaxWidth: false, nodeSpacing: 55, rankSpacing: 70, padding: 20 },
-      sequence: { useMaxWidth: false, actorMargin: 80, messageMargin: 40, boxMargin: 12, noteMargin: 12, messageFontSize: 14, actorFontSize: 15, noteFontSize: 13, wrap: true },
+      flowchart: { curve: "basis", htmlLabels: true, useMaxWidth: true, nodeSpacing: 50, rankSpacing: 65, padding: 18 },
+      sequence: { useMaxWidth: true, actorMargin: 70, messageMargin: 40, boxMargin: 12, noteMargin: 12, messageFontSize: 14, actorFontSize: 15, noteFontSize: 13, wrap: true },
       themeVariables: {
         background: "#06070d",
         primaryColor: "#0f1626",
