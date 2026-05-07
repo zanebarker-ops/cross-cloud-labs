@@ -283,18 +283,34 @@
       background: linear-gradient(180deg, rgba(13, 17, 23, 0.7) 0%, rgba(6, 8, 16, 0.7) 100%);
       border: 1px solid var(--line-strong);
       border-radius: 10px;
-      padding: 18px;
-      overflow: auto;
+      padding: 24px;
+      overflow-x: auto;
+      overflow-y: hidden;
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      scrollbar-width: thin;
+      scrollbar-color: var(--cyan) rgba(15, 22, 38, 0.5);
     }
-    .mermaid-frame .mermaid svg { max-width: 100%; height: auto; }
+    .mermaid-frame::-webkit-scrollbar { height: 8px; }
+    .mermaid-frame::-webkit-scrollbar-track { background: rgba(15, 22, 38, 0.5); }
+    .mermaid-frame::-webkit-scrollbar-thumb { background: var(--cyan); border-radius: 4px; }
+    .mermaid-frame .mermaid svg { display: block; height: auto; }
 
     svg[id^="mermaid-"] .nodeLabel,
     svg[id^="mermaid-"] foreignObject *,
     svg[id^="mermaid-"] text {
       font-family: var(--font-mono) !important;
+      font-size: 14px !important;
+      font-weight: 500 !important;
       fill: var(--text) !important;
     }
+    svg[id^="mermaid-"] .cluster text { font-size: 13px !important; letter-spacing: 0.06em !important; }
+    svg[id^="mermaid-"] .edgeLabel, svg[id^="mermaid-"] .edgeLabel * {
+      font-family: var(--font-mono) !important;
+      font-size: 12px !important;
+      fill: var(--cyan-bright) !important;
+      background-color: var(--bg-0) !important;
+    }
+    svg[id^="mermaid-"] .edgeLabel rect { fill: var(--bg-0) !important; }
     svg[id^="mermaid-"] .edgePath path,
     svg[id^="mermaid-"] .flowchart-link,
     svg[id^="mermaid-"] line.messageLine0,
@@ -799,8 +815,8 @@ flowchart LR
       startOnLoad: true,
       theme: "dark",
       securityLevel: "strict",
-      flowchart: { curve: "basis", htmlLabels: true, useMaxWidth: true },
-      sequence: { useMaxWidth: true, actorMargin: 60, messageFontSize: 13, actorFontSize: 13 },
+      flowchart: { curve: "basis", htmlLabels: true, useMaxWidth: false, nodeSpacing: 55, rankSpacing: 70, padding: 20 },
+      sequence: { useMaxWidth: false, actorMargin: 80, messageMargin: 40, boxMargin: 12, noteMargin: 12, messageFontSize: 14, actorFontSize: 15, noteFontSize: 13, wrap: true },
       themeVariables: {
         background: "#06070d",
         primaryColor: "#0f1626",
