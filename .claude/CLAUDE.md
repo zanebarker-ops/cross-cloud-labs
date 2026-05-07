@@ -29,7 +29,6 @@ docs/
   ├── reference-architectures/
   │    ├── aws/                AWS service reference docs (source of truth)
   │    └── azure/              Azure service reference docs
-  └── study-guides/            PDFs/PNGs (cloud product mapping, monitoring, databases)
 teardown-all.sh                Walks all labs and destroys
 .env.example                   Template for local .env
 ```
