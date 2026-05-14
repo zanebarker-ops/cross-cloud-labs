@@ -1,0 +1,11 @@
+# Copy to terraform.tfvars and fill in the three values from the Azure round-1 apply.
+# terraform.tfvars is gitignored — do not commit real values.
+
+# From Azure side `terraform output azure_gw_public_ip` (round 1)
+azure_gw_public_ip = "REPLACE_WITH_AZURE_VPN_GW_PUBLIC_IP"
+
+# Locked params — only override if the Azure session changes them and pings you.
+# azure_bgp_asn   = 65010
+# azure_vnet_cidr = "10.10.0.0/16"
+# aws_region      = "us-east-1"
+# aws_vgw_asn     = 65020

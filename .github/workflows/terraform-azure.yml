@@ -1,0 +1,91 @@
+name: Terraform Azure Validate
+
+# PR-time validation for Azure Terraform under azure/.
+# Per .claude/CLAUDE.md rule #3 (no remote backends, local state only) this
+# workflow does NOT run `terraform plan` or `apply` — it only checks formatting
+# and structural correctness. Service-principal credentials are wired now (from
+# GitHub Secrets) so this is one edit away from adding plan/apply later if the
+# project ever opts into remote state.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'azure/**/*.tf'
+      - 'azure/**/*.tfvars'
+      - 'azure/**/*.tfvars.json'
+      - '.github/workflows/terraform-azure.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'azure/**/*.tf'
+      - 'azure/**/*.tfvars'
+      - 'azure/**/*.tfvars.json'
+      - '.github/workflows/terraform-azure.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-azure-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TF_VERSION: '1.9.8'
+  # azurerm provider picks these up natively.
+  ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+jobs:
+  fmt:
+    name: terraform fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: terraform fmt -check -recursive
+        run: terraform fmt -check -recursive azure/
+
+  discover:
+    name: Discover Azure Terraform roots
+    runs-on: ubuntu-latest
+    outputs:
+      roots: ${{ steps.find.outputs.roots }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: find
+        run: |
+          set -euo pipefail
+          roots=$(find azure -type f -name main.tf -printf '%h\n' | sort -u \
+                  | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "roots=$roots" >> "$GITHUB_OUTPUT"
+          echo "Discovered: $roots"
+
+  validate:
+    name: validate (${{ matrix.root }})
+    needs: discover
+    if: needs.discover.outputs.roots != '[]' && needs.discover.outputs.roots != ''
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        root: ${{ fromJson(needs.discover.outputs.roots) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.root }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: terraform init (no backend)
+        run: terraform init -backend=false -input=false
+
+      - name: terraform validate
+        run: terraform validate -no-color
